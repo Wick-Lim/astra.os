@@ -1,17 +1,87 @@
 use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
-use linked_list_allocator::LockedHeap;
 use x86_64::structures::paging::{
     mapper::MapToError, FrameAllocator, Mapper, Page, PageTableFlags, Size4KiB, PhysFrame,
 };
 use x86_64::{VirtAddr, PhysAddr};
+use core::alloc::{GlobalAlloc, Layout};
+use core::ptr::null_mut;
+use spin::Mutex;
 
 /// 힙의 시작 주소
 pub const HEAP_START: usize = 0x_4444_4444_0000;
-/// 힙 크기 (2 MiB) - 안정성을 위해 적절한 크기로 설정
+/// 힙 크기 (2 MiB) - 960 페이지 제한으로 인해 이 이상 불가
 pub const HEAP_SIZE: usize = 2 * 1024 * 1024;
 
+/// Bump Allocator - 간단하고 안정적이지만 메모리 재사용 불가
+pub struct BumpAllocator {
+    heap_start: usize,
+    heap_end: usize,
+    next: usize,
+}
+
+impl BumpAllocator {
+    pub const fn new() -> Self {
+        BumpAllocator {
+            heap_start: 0,
+            heap_end: 0,
+            next: 0,
+        }
+    }
+
+    pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
+        self.heap_start = heap_start;
+        self.heap_end = heap_start + heap_size;
+        self.next = heap_start;
+    }
+}
+
+unsafe impl GlobalAlloc for Locked<BumpAllocator> {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let mut bump = self.lock();
+
+        let alloc_start = align_up(bump.next, layout.align());
+        let alloc_end = match alloc_start.checked_add(layout.size()) {
+            Some(end) => end,
+            None => return null_mut(),
+        };
+
+        if alloc_end > bump.heap_end {
+            null_mut() // out of memory
+        } else {
+            bump.next = alloc_end;
+            alloc_start as *mut u8
+        }
+    }
+
+    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
+        // Bump allocator는 deallocate를 하지 않음
+        // 메모리 재사용 불가 - 순수 bump-only 할당
+        // 아무것도 하지 않음
+    }
+}
+
+pub struct Locked<A> {
+    inner: Mutex<A>,
+}
+
+impl<A> Locked<A> {
+    pub const fn new(inner: A) -> Self {
+        Locked {
+            inner: Mutex::new(inner),
+        }
+    }
+
+    pub fn lock(&self) -> spin::MutexGuard<A> {
+        self.inner.lock()
+    }
+}
+
+fn align_up(addr: usize, align: usize) -> usize {
+    (addr + align - 1) & !(align - 1)
+}
+
 #[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::empty();
+static ALLOCATOR: Locked<BumpAllocator> = Locked::new(BumpAllocator::new());
 
 /// 힙을 초기화하는 함수
 pub fn init_heap(
@@ -51,11 +121,11 @@ pub fn init_heap(
     }
     serial_println!("    All {} pages mapped", count);
 
-    serial_println!("    Initializing allocator...");
+    serial_println!("    Initializing BumpAllocator...");
     unsafe {
-        ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE);
+        ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
     }
-    serial_println!("    Allocator initialized");
+    serial_println!("    BumpAllocator initialized");
 
     Ok(())
 }
@@ -96,9 +166,19 @@ impl BootInfoFrameAllocator {
 unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
         // 현재 프레임이 사용 가능한지 확인
+        let mut attempts = 0u64;
         while !self.frame_is_usable(self.next_frame) {
             // 다음 프레임으로 이동
             self.next_frame += 1;
+            attempts += 1;
+
+            // 너무 많이 시도하면 실패
+            if attempts > 100000 {
+                use crate::serial_println;
+                serial_println!("      WARN: Frame allocator exhausted after {} attempts", attempts);
+                serial_println!("      Last frame attempted: {:#x}", self.next_frame.start_address().as_u64());
+                return None;
+            }
         }
 
         let frame = self.next_frame;

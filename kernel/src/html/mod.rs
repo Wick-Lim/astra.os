@@ -10,14 +10,15 @@ use alloc::boxed::Box;
 
 pub mod renderer;
 
-#[derive(Debug, Clone)]
 pub enum Node {
     Element {
         tag: String,
-        children: Vec<Node>,
+        children: Vec<Box<Node>>,
     },
     Text(String),
 }
+
+// REMOVED Drop impl - causes crashes during struct initialization!
 
 pub struct Parser<'a> {
     input: &'a str,
@@ -91,7 +92,7 @@ impl<'a> Parser<'a> {
                     Node::Element {
                         tag: String::from("html"),
                         children: alloc::vec![
-                            Node::Text(String::from("Parse error"))
+                            Box::new(Node::Text(String::from("Parse error")))
                         ],
                     }
                 }
@@ -122,7 +123,7 @@ impl<'a> Parser<'a> {
         }
 
         // Parse children (non-recursive, depth=1 only)
-        let mut children = Vec::new();
+        let mut children = Vec::with_capacity(4);
 
         loop {
             self.consume_whitespace();
@@ -148,7 +149,7 @@ impl<'a> Parser<'a> {
             // Parse text
             let text = self.consume_while(|c| c != '<');
             if !text.is_empty() {
-                children.push(Node::Text(String::from(text)));
+                children.push(Box::new(Node::Text(String::from(text))));
             }
         }
 
@@ -161,6 +162,8 @@ impl<'a> Parser<'a> {
             self.consume_char(); // '>'
         }
 
+        // NOTE: Using actual parsed children - will leak memory on drop
+        // TODO: Fix heap allocator deallocation bug
         Some(Node::Element {
             tag: String::from(tag_name),
             children,
