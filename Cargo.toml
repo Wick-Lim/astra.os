@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "kernel",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Browser OS Team"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = 3
