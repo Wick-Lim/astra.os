@@ -157,10 +157,12 @@ fn jump_to_userspace() -> ! {
     serial_println!("User RIP: {:#x}, User RSP: {:#x}", userspace_entry, user_stack_top);
 
     // Ensure stack is 16-byte aligned
-    let user_stack_top_aligned = user_stack_top & !0xF;
-    if user_stack_top != user_stack_top_aligned {
-        serial_println!("WARNING: Stack not 16-byte aligned! {:#x} -> {:#x}", user_stack_top, user_stack_top_aligned);
-    }
+    let user_stack_top = user_stack_top & !0xF;
+    serial_println!("User stack aligned to: {:#x}", user_stack_top);
+
+    // Disable interrupts before Ring 3 transition to prevent immediate interrupt
+    serial_println!("Disabling interrupts before Ring 3 transition...");
+    x86_64::instructions::interrupts::disable();
 
     serial_println!("Executing iretq to Ring 3...");
 
@@ -169,8 +171,8 @@ fn jump_to_userspace() -> ! {
             // Push values for iretq (in reverse order)
             "push {ss}",          // SS (user data segment)
             "push {rsp}",         // RSP (user stack pointer)
-            "pushfq",             // RFLAGS
-            "or qword ptr [rsp], 0x200",  // Set IF (interrupt flag) in RFLAGS
+            "pushfq",             // RFLAGS (with current flags)
+            "and qword ptr [rsp], ~0x200",  // Clear IF (keep interrupts disabled)
             "push {cs}",          // CS (user code segment)
             "push {rip}",         // RIP (user code entry point)
             "iretq",              // Return to Ring 3

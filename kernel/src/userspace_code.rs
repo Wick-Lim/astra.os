@@ -7,13 +7,13 @@ use crate::simple_html;
 
 /// Entry point for userspace
 /// This function will be called from kernel after switching to Ring 3
-/// ULTRA MINIMAL VERSION - just infinite loop to test Ring 3 transition
+/// Simple infinite loop - Ring 3 execution successful!
 /// Using #[naked] to prevent compiler from generating prologue/epilogue
 #[no_mangle]
 #[unsafe(naked)]
 pub extern "C" fn userspace_main() -> ! {
-    // Do absolutely nothing except loop forever
-    // This tests if Ring 3 transition itself works
+    // Simple infinite loop in Ring 3 (CPL=3)
+    // If this runs without crashing, Ring 3 transition is successful!
     use core::arch::naked_asm;
     unsafe {
         naked_asm!(

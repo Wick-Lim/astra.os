@@ -129,6 +129,8 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFr
 // === System Call Handler ===
 
 extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
+    crate::serial_println!("[SYSCALL] Entered from Ring 3!");
+
     unsafe {
         // Read syscall number and arguments from registers
         let syscall_num: u64;
@@ -144,6 +146,20 @@ extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
             lateout("rdx") arg3,
         );
 
+        crate::serial_println!("[SYSCALL] num={}, arg1={:#x}, arg2={:#x}, arg3={}",
+                              syscall_num, arg1, arg2, arg3);
+
+        // For write syscall, print the message
+        if syscall_num == 1 {
+            crate::serial_println!("[SYSCALL] Write syscall - printing Ring 3 message:");
+            if arg3 > 0 && arg3 < 1000 {  // Reasonable length check
+                let msg_slice = core::slice::from_raw_parts(arg2 as *const u8, arg3 as usize);
+                if let Ok(msg_str) = core::str::from_utf8(msg_slice) {
+                    crate::serial_println!("[Ring 3 OUTPUT] {}", msg_str);
+                }
+            }
+        }
+
         // Call syscall handler
         let result = crate::syscall::handle_syscall(
             syscall_num,
@@ -153,6 +169,8 @@ extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
             0, // arg4
             0, // arg5
         );
+
+        crate::serial_println!("[SYSCALL] Returning to Ring 3 with result={}", result);
 
         // Return value in rax
         core::arch::asm!(
