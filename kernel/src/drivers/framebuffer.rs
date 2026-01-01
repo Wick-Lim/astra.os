@@ -1,246 +1,310 @@
 use core::fmt;
 use lazy_static::lazy_static;
 use spin::Mutex;
-use volatile::Volatile;
+use x86_64::instructions::port::Port;
+use embedded_graphics::{
+    pixelcolor::{Rgb888, RgbColor},
+    prelude::*,
+};
 
-const BUFFER_HEIGHT: usize = 25;
-const BUFFER_WIDTH: usize = 80;
+/// VGA Mode 13h 해상도
+pub const WIDTH: usize = 320;
+pub const HEIGHT: usize = 200;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum Color {
-    Black = 0,
-    Blue = 1,
-    Green = 2,
-    Cyan = 3,
-    Red = 4,
-    Magenta = 5,
-    Brown = 6,
-    LightGray = 7,
-    DarkGray = 8,
-    LightBlue = 9,
-    LightGreen = 10,
-    LightCyan = 11,
-    LightRed = 12,
-    Pink = 13,
-    Yellow = 14,
-    White = 15,
+/// VGA 메모리 시작 주소 (Mode 13h)
+const VGA_ADDRESS: usize = 0xA0000;
+
+/// VGA Mode 13h 픽셀 기반 프레임버퍼
+pub struct Framebuffer {
+    // 슬라이스 대신 포인터 사용
+    buffer_ptr: *mut u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-struct ColorCode(u8);
-
-impl ColorCode {
-    fn new(foreground: Color, background: Color) -> ColorCode {
-        ColorCode((background as u8) << 4 | (foreground as u8))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(C)]
-struct ScreenChar {
-    ascii_character: u8,
-    color_code: ColorCode,
-}
-
-#[repr(transparent)]
-struct Buffer {
-    chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
-}
-
-pub struct Writer {
-    column_position: usize,
-    color_code: ColorCode,
-    buffer: &'static mut Buffer,
-}
-
-impl Writer {
-    pub fn write_byte(&mut self, byte: u8) {
-        match byte {
-            b'\n' => self.new_line(),
-            byte => {
-                if self.column_position >= BUFFER_WIDTH {
-                    self.new_line();
-                }
-
-                let row = BUFFER_HEIGHT - 1;
-                let col = self.column_position;
-
-                let color_code = self.color_code;
-                self.buffer.chars[row][col].write(ScreenChar {
-                    ascii_character: byte,
-                    color_code,
-                });
-                self.column_position += 1;
-            }
+impl Framebuffer {
+    /// 새로운 프레임버퍼 생성 (public으로 export)
+    pub unsafe fn new() -> Self {
+        Self {
+            buffer_ptr: VGA_ADDRESS as *mut u8,
         }
     }
 
-    /// 특정 위치에 문자 쓰기
-    pub fn write_char_at(&mut self, x: usize, y: usize, byte: u8, fg: Color, bg: Color) {
-        if x >= BUFFER_WIDTH || y >= BUFFER_HEIGHT {
+    /// 화면 전체를 특정 색으로 채우기
+    pub fn clear(&mut self, color: u8) {
+        unsafe {
+            core::ptr::write_bytes(self.buffer_ptr, color, WIDTH * HEIGHT);
+        }
+    }
+
+    /// 특정 위치에 픽셀 그리기
+    pub fn draw_pixel(&mut self, x: usize, y: usize, color: u8) {
+        if x >= WIDTH || y >= HEIGHT {
             return;
         }
-        let color_code = ColorCode::new(fg, bg);
-        self.buffer.chars[y][x].write(ScreenChar {
-            ascii_character: byte,
-            color_code,
-        });
-    }
-
-    /// 사각형 그리기 (테두리만)
-    pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, fg: Color, bg: Color, ch: u8) {
-        for i in 0..width {
-            if x + i < BUFFER_WIDTH {
-                if y < BUFFER_HEIGHT {
-                    self.write_char_at(x + i, y, ch, fg, bg);
-                }
-                if y + height.saturating_sub(1) < BUFFER_HEIGHT {
-                    self.write_char_at(x + i, y + height.saturating_sub(1), ch, fg, bg);
-                }
-            }
-        }
-        for i in 1..height.saturating_sub(1) {
-            if y + i < BUFFER_HEIGHT {
-                if x < BUFFER_WIDTH {
-                    self.write_char_at(x, y + i, ch, fg, bg);
-                }
-                if x + width.saturating_sub(1) < BUFFER_WIDTH {
-                    self.write_char_at(x + width.saturating_sub(1), y + i, ch, fg, bg);
-                }
-            }
+        let offset = y * WIDTH + x;
+        unsafe {
+            self.buffer_ptr.add(offset).write_volatile(color);
         }
     }
 
-    /// 채워진 사각형 그리기
-    pub fn fill_rect(&mut self, x: usize, y: usize, width: usize, height: usize, fg: Color, bg: Color, ch: u8) {
-        for dy in 0..height {
+    /// RGB888을 256색 팔레트 인덱스로 변환 (간단한 양자화)
+    fn rgb_to_palette(color: Rgb888) -> u8 {
+        // 3-3-2 비트 RGB 팔레트 (216색 + 40 그레이스케일)
+        let r = (color.r() >> 5) & 0x07; // 3비트
+        let g = (color.g() >> 5) & 0x07; // 3비트
+        let b = (color.b() >> 6) & 0x03; // 2비트
+        ((r << 5) | (g << 2) | b) as u8
+    }
+
+    /// RGB888 색상으로 픽셀 그리기
+    pub fn draw_pixel_rgb(&mut self, x: usize, y: usize, color: Rgb888) {
+        let palette_index = Self::rgb_to_palette(color);
+        self.draw_pixel(x, y, palette_index);
+    }
+
+    /// 채워진 사각형 그리기 (VGA 메모리용 write_volatile 사용)
+    pub fn fill_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: u8) {
+        // 경계 체크
+        if x >= WIDTH || y >= HEIGHT {
+            return;
+        }
+
+        // 실제로 그릴 수 있는 영역 계산
+        let actual_width = core::cmp::min(width, WIDTH - x);
+        let actual_height = core::cmp::min(height, HEIGHT - y);
+
+        // write_volatile로 픽셀 단위 쓰기 (VGA 메모리는 volatile 필수!)
+        unsafe {
+            for dy in 0..actual_height {
+                let row_offset = (y + dy) * WIDTH + x;
+                for dx in 0..actual_width {
+                    self.buffer_ptr.add(row_offset + dx).write_volatile(color);
+                }
+            }
+        }
+    }
+
+    /// RGB888 색상으로 채워진 사각형 그리기
+    pub fn fill_rect_rgb(&mut self, x: usize, y: usize, width: usize, height: usize, color: Rgb888) {
+        let palette_index = Self::rgb_to_palette(color);
+        self.fill_rect(x, y, width, height, palette_index);
+    }
+
+    /// 사각형 테두리 그리기
+    pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: u8) {
+        // 상단
+        for dx in 0..width {
+            if x + dx < WIDTH && y < HEIGHT {
+                self.draw_pixel(x + dx, y, color);
+            }
+        }
+        // 하단
+        if y + height > 0 && y + height - 1 < HEIGHT {
             for dx in 0..width {
-                if x + dx < BUFFER_WIDTH && y + dy < BUFFER_HEIGHT {
-                    self.write_char_at(x + dx, y + dy, ch, fg, bg);
+                if x + dx < WIDTH {
+                    self.draw_pixel(x + dx, y + height - 1, color);
+                }
+            }
+        }
+        // 좌측
+        for dy in 0..height {
+            if x < WIDTH && y + dy < HEIGHT {
+                self.draw_pixel(x, y + dy, color);
+            }
+        }
+        // 우측
+        if x + width > 0 && x + width - 1 < WIDTH {
+            for dy in 0..height {
+                if y + dy < HEIGHT {
+                    self.draw_pixel(x + width - 1, y + dy, color);
                 }
             }
         }
     }
 
-    /// 특정 위치에 문자열 쓰기
-    pub fn write_str_at(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color) {
-        let mut col = x;
-        for byte in s.bytes() {
-            if col >= BUFFER_WIDTH {
-                break;
-            }
-            match byte {
-                0x20..=0x7e => {
-                    self.write_char_at(col, y, byte, fg, bg);
-                    col += 1;
-                }
-                _ => {
-                    self.write_char_at(col, y, 0xfe, fg, bg);
-                    col += 1;
-                }
-            }
-        }
-    }
-
-    pub fn write_string(&mut self, s: &str) {
-        for byte in s.bytes() {
-            match byte {
-                0x20..=0x7e | b'\n' => self.write_byte(byte),
-                _ => self.write_byte(0xfe),
-            }
-        }
-    }
-
-    fn new_line(&mut self) {
-        for row in 1..BUFFER_HEIGHT {
-            for col in 0..BUFFER_WIDTH {
-                let character = self.buffer.chars[row][col].read();
-                self.buffer.chars[row - 1][col].write(character);
-            }
-        }
-        self.clear_row(BUFFER_HEIGHT - 1);
-        self.column_position = 0;
-    }
-
-    fn clear_row(&mut self, row: usize) {
-        let blank = ScreenChar {
-            ascii_character: b' ',
-            color_code: self.color_code,
-        };
-        for col in 0..BUFFER_WIDTH {
-            self.buffer.chars[row][col].write(blank);
-        }
-    }
-
-    pub fn clear_screen(&mut self, color: u32) {
-        let background = match color {
-            0x0000FF => Color::Blue,
-            0x00FF00 => Color::Green,
-            0xFF0000 => Color::Red,
-            _ => Color::Black,
-        };
-
-        self.color_code = ColorCode::new(Color::White, background);
-        for row in 0..BUFFER_HEIGHT {
-            self.clear_row(row);
-        }
-        self.column_position = 0;
+    /// RGB888 색상으로 사각형 테두리 그리기
+    pub fn draw_rect_rgb(&mut self, x: usize, y: usize, width: usize, height: usize, color: Rgb888) {
+        let palette_index = Self::rgb_to_palette(color);
+        self.draw_rect(x, y, width, height, palette_index);
     }
 }
 
-impl fmt::Write for Writer {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        self.write_string(s);
+/// embedded-graphics DrawTarget 구현
+impl DrawTarget for Framebuffer {
+    type Color = Rgb888;
+    type Error = core::convert::Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Pixel<Self::Color>>,
+    {
+        for Pixel(coord, color) in pixels.into_iter() {
+            if coord.x >= 0 && coord.y >= 0 {
+                self.draw_pixel_rgb(coord.x as usize, coord.y as usize, color);
+            }
+        }
         Ok(())
     }
 }
 
-lazy_static! {
-    pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
-        column_position: 0,
-        color_code: ColorCode::new(Color::White, Color::Black),
-        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
-    });
+impl OriginDimensions for Framebuffer {
+    fn size(&self) -> Size {
+        Size::new(WIDTH as u32, HEIGHT as u32)
+    }
 }
 
+/// VGA Mode 13h 설정
+pub fn set_mode_13h() {
+    unsafe {
+        let mut misc_output = Port::<u8>::new(0x3C2);
+        let mut sequencer_index = Port::<u8>::new(0x3C4);
+        let mut sequencer_data = Port::<u8>::new(0x3C5);
+        let mut crtc_index = Port::<u8>::new(0x3D4);
+        let mut crtc_data = Port::<u8>::new(0x3D5);
+        let mut graphics_index = Port::<u8>::new(0x3CE);
+        let mut graphics_data = Port::<u8>::new(0x3CF);
+        let mut attribute_index = Port::<u8>::new(0x3C0);
+        let mut input_status = Port::<u8>::new(0x3DA);
+
+        // Mode 13h 레지스터 값들
+        let sequencer_regs: [u8; 5] = [0x03, 0x01, 0x0F, 0x00, 0x0E];
+        let crtc_regs: [u8; 25] = [
+            0x5F, 0x4F, 0x50, 0x82, 0x54, 0x80, 0xBF, 0x1F,
+            0x00, 0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x9C, 0x0E, 0x8F, 0x28, 0x40, 0x96, 0xB9, 0xA3, 0xFF
+        ];
+        let graphics_regs: [u8; 9] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x05, 0x0F, 0xFF];
+        let attribute_regs: [u8; 21] = [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+            0x41, 0x00, 0x0F, 0x00, 0x00
+        ];
+
+        // Miscellaneous Output Register 설정
+        misc_output.write(0x63);
+
+        // Sequencer Registers 설정
+        for (i, &val) in sequencer_regs.iter().enumerate() {
+            sequencer_index.write(i as u8);
+            sequencer_data.write(val);
+        }
+
+        // CRTC Registers 해제 (write protect 해제)
+        crtc_index.write(0x03);
+        let val = crtc_data.read();
+        crtc_data.write(val | 0x80);
+        crtc_index.write(0x11);
+        let val = crtc_data.read();
+        crtc_data.write(val & !0x80);
+
+        // CRTC Registers 설정
+        for (i, &val) in crtc_regs.iter().enumerate() {
+            crtc_index.write(i as u8);
+            crtc_data.write(val);
+        }
+
+        // Graphics Controller Registers 설정
+        for (i, &val) in graphics_regs.iter().enumerate() {
+            graphics_index.write(i as u8);
+            graphics_data.write(val);
+        }
+
+        // Attribute Controller Registers 설정
+        // Input Status Register를 읽어서 flip-flop 리셋
+        input_status.read();
+
+        for (i, &val) in attribute_regs.iter().enumerate() {
+            attribute_index.write(i as u8);
+            attribute_index.write(val);
+        }
+
+        // Attribute Controller 활성화
+        attribute_index.write(0x20);
+    }
+}
+
+/// VGA 팔레트 설정 (3-3-2 RGB)
+pub fn setup_palette() {
+    unsafe {
+        let mut dac_index = Port::<u8>::new(0x3C8);
+        let mut dac_data = Port::<u8>::new(0x3C9);
+
+        // 256색 팔레트 설정
+        for i in 0..256 {
+            dac_index.write(i as u8);
+
+            // 3-3-2 비트 RGB 팔레트
+            let r = ((i >> 5) & 0x07) as u8;  // 3비트
+            let g = ((i >> 2) & 0x07) as u8;  // 3비트
+            let b = (i & 0x03) as u8;         // 2비트
+
+            // VGA DAC는 6비트 값을 사용하므로 스케일링
+            dac_data.write((r << 3) | (r >> 0)); // 0-7 -> 0-63
+            dac_data.write((g << 3) | (g >> 0));
+            dac_data.write((b << 4) | (b << 2) | b); // 0-3 -> 0-63
+        }
+    }
+}
+
+/// 전역 프레임버퍼
+static mut FRAMEBUFFER: Option<Framebuffer> = None;
+
+/// 프레임버퍼 초기화
 pub fn init() {
-    // VGA 버퍼 초기화 (이미 lazy_static으로 초기화됨)
+    use crate::serial_println;
+
+    serial_println!("  Setting VGA Mode 13h...");
+    set_mode_13h();
+    serial_println!("  VGA Mode 13h set");
+
+    serial_println!("  Setting up palette...");
+    setup_palette();
+    serial_println!("  Palette configured");
+
+    unsafe {
+        FRAMEBUFFER = Some(Framebuffer::new());
+    }
+    serial_println!("  Framebuffer structure initialized");
 }
 
-pub fn clear_screen(color: u32) {
-    WRITER.lock().clear_screen(color);
+/// 프레임버퍼에 안전하게 접근
+fn with_fb<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut Framebuffer) -> R,
+    R: Default,
+{
+    unsafe {
+        if let Some(ref mut fb) = FRAMEBUFFER {
+            f(fb)
+        } else {
+            R::default()
+        }
+    }
 }
 
-/// 특정 위치에 문자열 그리기
-pub fn draw_str(x: usize, y: usize, s: &str, fg: Color, bg: Color) {
-    WRITER.lock().write_str_at(x, y, s, fg, bg);
+/// 화면 전체를 특정 색으로 채우기
+pub fn clear_screen(color: Rgb888) {
+    with_fb(|fb| fb.fill_rect_rgb(0, 0, WIDTH, HEIGHT, color))
 }
 
-/// 사각형 테두리 그리기
-pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, fg: Color, bg: Color) {
-    WRITER.lock().draw_rect(x, y, width, height, fg, bg, b'#');
+/// 픽셀 그리기
+pub fn draw_pixel(x: usize, y: usize, color: Rgb888) {
+    with_fb(|fb| fb.draw_pixel_rgb(x, y, color))
 }
 
 /// 채워진 사각형 그리기
-pub fn fill_rect(x: usize, y: usize, width: usize, height: usize, fg: Color, bg: Color) {
-    WRITER.lock().fill_rect(x, y, width, height, fg, bg, b' ');
+pub fn fill_rect(x: usize, y: usize, width: usize, height: usize, color: Rgb888) {
+    with_fb(|fb| fb.fill_rect_rgb(x, y, width, height, color))
 }
 
-pub fn _print(args: fmt::Arguments) {
-    use core::fmt::Write;
-    WRITER.lock().write_fmt(args).unwrap();
+/// 사각형 테두리 그리기
+pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, color: Rgb888) {
+    with_fb(|fb| fb.draw_rect_rgb(x, y, width, height, color))
 }
 
-#[macro_export]
-macro_rules! print {
-    ($($arg:tt)*) => ($crate::drivers::framebuffer::_print(format_args!($($arg)*)));
-}
-
-#[macro_export]
-macro_rules! println {
-    () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+/// embedded-graphics를 사용한 도형 그리기
+pub fn with_framebuffer<F>(f: F)
+where
+    F: FnOnce(&mut Framebuffer),
+{
+    with_fb(f)
 }

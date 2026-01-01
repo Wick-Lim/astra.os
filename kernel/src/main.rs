@@ -6,12 +6,18 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 use core::panic::PanicInfo;
+use embedded_graphics::{
+    pixelcolor::Rgb888,
+    prelude::*,
+    primitives::{PrimitiveStyle, Rectangle, Circle},
+    Drawable,
+};
 
 mod drivers;
 mod interrupts;
 mod memory;
 mod serial;
-mod ui;
+// mod ui; // TODO: UI 모듈을 픽셀 그래픽에 맞게 업데이트 필요
 mod network;
 
 entry_point!(kernel_main);
@@ -19,7 +25,7 @@ entry_point!(kernel_main);
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // 시리얼 포트 초기화
     serial::init();
-    serial_println!("ASTRA.OS v0.1.0");
+    serial_println!("ASTRA.OS v0.2.0 - Phase 4");
     serial_println!("Kernel starting...");
     serial_println!("Boot info physical_memory_offset: {:#x}", boot_info.physical_memory_offset);
 
@@ -43,55 +49,58 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     network::init();
     serial_println!("Network stack initialized");
 
-    serial_println!("Initializing framebuffer...");
-    // 프레임버퍼 초기화
+    serial_println!("Initializing framebuffer (VGA Mode 13h)...");
+    // 프레임버퍼 초기화 (VGA Mode 13h: 320x200, 256색)
     drivers::framebuffer::init();
     serial_println!("Framebuffer initialized");
 
-    // 화면을 검은색으로 채우기
-    drivers::framebuffer::clear_screen(0x000000);
-    serial_println!("Screen cleared");
+    // Phase 4: 픽셀 그래픽 데모
+    use drivers::framebuffer::{with_framebuffer, fill_rect, draw_rect, WIDTH, HEIGHT};
 
-    // Phase 2 그래픽 데모
-    use drivers::framebuffer::{Color, draw_str, draw_rect, fill_rect};
+    serial_println!("=== fill_rect 테스트 시작 ===");
 
-    // 타이틀 바
-    fill_rect(0, 0, 80, 1, Color::White, Color::Blue);
-    draw_str(2, 0, "ASTRA.OS v0.1.0 - Phase 3: Network Stack", Color::White, Color::Blue);
+    // 100x100 테스트
+    serial_println!("  Testing 100x100...");
+    fill_rect(0, 0, 100, 100, Rgb888::new(255, 0, 0));
+    serial_println!("  100x100 OK!");
 
-    // 메인 컨텐츠 영역
-    draw_str(2, 2, "=== Kernel Features ===", Color::Yellow, Color::Black);
-    draw_str(2, 4, "[OK] Memory Management", Color::Green, Color::Black);
-    draw_str(2, 5, "[OK] Interrupt Handling", Color::Green, Color::Black);
-    draw_str(2, 6, "[OK] VGA Graphics Driver", Color::Green, Color::Black);
-    draw_str(2, 7, "[OK] Serial Port Debug", Color::Green, Color::Black);
-    draw_str(2, 8, "[OK] Network Stack (Ready)", Color::Green, Color::Black);
+    // 전체 화면 테스트
+    serial_println!("  Testing full screen clear...");
+    fill_rect(0, 0, WIDTH, HEIGHT, Rgb888::BLACK);
+    serial_println!("  Full screen OK!");
 
-    // 네트워크 정보 섹션
-    draw_str(2, 10, "=== Network Configuration ===", Color::Yellow, Color::Black);
-    draw_str(2, 12, "IP Address:  10.0.2.15/24", Color::Cyan, Color::Black);
-    draw_str(2, 13, "MAC Address: 02:00:00:00:00:01", Color::Cyan, Color::Black);
-    draw_str(2, 14, "Status:      Ready (DummyDevice)", Color::Green, Color::Black);
+    serial_println!("  Testing full width (320x20)...");
+    fill_rect(0, 0, WIDTH, 20, Rgb888::BLACK);
+    serial_println!("  320x20 OK");
 
-    // 프레임으로 네트워크 정보 강조
-    draw_rect(1, 9, 50, 7, Color::DarkGray, Color::Black);
+    serial_println!("  Testing full screen...");
+    fill_rect(0, 0, WIDTH, HEIGHT, Rgb888::BLACK);
+    serial_println!("  Full screen OK");
 
-    // UI 위젯 데모
-    draw_str(2, 17, "=== UI Widgets Demo ===", Color::Yellow, Color::Black);
-    draw_str(2, 19, "Mouse: Ready (No PS/2 in QEMU)", Color::Yellow, Color::Black);
-    draw_str(2, 20, "Network: Investigating smoltcp", Color::Yellow, Color::Black);
+    // 타이틀 바 (파란색)
+    fill_rect(0, 0, WIDTH, 20, Rgb888::new(0, 0, 180));
+    serial_println!("  Title bar drawn");
 
-    // 상태 바
-    fill_rect(0, 24, 80, 1, Color::Black, Color::LightGray);
-    draw_str(2, 24, "Network Stack Ready | Press Ctrl+C to exit QEMU", Color::Black, Color::LightGray);
+    // 상태 박스들 (녹색)
+    fill_rect(20, 30, 60, 30, Rgb888::new(0, 150, 0));
+    fill_rect(90, 30, 60, 30, Rgb888::new(0, 150, 0));
+    fill_rect(160, 30, 60, 30, Rgb888::new(0, 150, 0));
+    fill_rect(230, 30, 60, 30, Rgb888::new(0, 150, 0));
+    serial_println!("  Status boxes drawn");
 
+    // 하단 상태 바 (회색)
+    fill_rect(0, 180, WIDTH, 20, Rgb888::new(80, 80, 80));
+    serial_println!("  Status bar drawn");
+
+    serial_println!("UI drawn successfully!");
+    serial_println!("Resolution: {}x{}", WIDTH, HEIGHT);
+    serial_println!("Pixel graphics enabled!");
     serial_println!("Kernel initialized successfully!");
     serial_println!("Entering idle loop...");
 
-    // 메인 루프 (마우스 비활성화됨)
+    // 메인 루프
     loop {
         x86_64::instructions::hlt();
-        // TODO: 네트워크 폴링 추가
     }
 }
 
