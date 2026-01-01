@@ -34,6 +34,7 @@ mod keyboard;
 mod fs;
 mod css;
 mod layout;
+mod resource;
 
 entry_point!(kernel_main);
 
@@ -94,6 +95,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     serial_println!("\n=== Phase 3 Tests ===");
     test_phase3_css();
     test_phase4_layout();
+    test_phase5_network();
 
     serial_println!("\nGoing to Ring 3...\n");
 
@@ -432,6 +434,185 @@ fn test_phase4_layout() {
     }
 
     serial_println!("=== Phase 4 Tests Complete ===\n");
+}
+
+fn test_phase5_network() {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    serial_println!("=== Phase 5 Tests ===");
+
+    serial_println!("[TEST 1] URL Parser - HTTP URL");
+    let url = network::Url::parse("http://example.com/path/to/file.html").unwrap();
+
+    serial_println!("  Scheme: {}", url.scheme);
+    serial_println!("  Host: {:?}", url.host);
+    serial_println!("  Path: {}", url.path);
+
+    assert_eq!(url.scheme, "http");
+    assert_eq!(url.host, Some(String::from("example.com")));
+    assert_eq!(url.path, "/path/to/file.html");
+    assert_eq!(url.port, None);
+    assert_eq!(url.port_or_default(), Some(80));
+    serial_println!("  HTTP URL parsing: OK");
+
+    serial_println!("[TEST 2] URL Parser - HTTPS URL with port");
+    let url = network::Url::parse("https://example.com:8443/api/data?key=value&foo=bar#section").unwrap();
+
+    serial_println!("  Scheme: {}", url.scheme);
+    serial_println!("  Host: {:?}", url.host);
+    serial_println!("  Port: {:?}", url.port);
+    serial_println!("  Path: {}", url.path);
+    serial_println!("  Query: {:?}", url.query);
+    serial_println!("  Fragment: {:?}", url.fragment);
+
+    assert_eq!(url.scheme, "https");
+    assert_eq!(url.host, Some(String::from("example.com")));
+    assert_eq!(url.port, Some(8443));
+    assert_eq!(url.path, "/api/data");
+    assert_eq!(url.query, Some(String::from("key=value&foo=bar")));
+    assert_eq!(url.fragment, Some(String::from("section")));
+    serial_println!("  HTTPS URL with port, query, fragment: OK");
+
+    serial_println!("[TEST 3] URL Parser - File URL");
+    let url = network::Url::parse("file:///home/user/index.html").unwrap();
+
+    serial_println!("  Scheme: {}", url.scheme);
+    serial_println!("  Path: {}", url.path);
+
+    assert_eq!(url.scheme, "file");
+    assert_eq!(url.host, None);
+    assert_eq!(url.path, "/home/user/index.html");
+    serial_println!("  File URL parsing: OK");
+
+    serial_println!("[TEST 4] URL to String");
+    let url = network::Url::parse("http://example.com:8080/path?query=1#frag").unwrap();
+    let url_string = url.to_string();
+
+    serial_println!("  URL string: {}", url_string);
+    assert!(url_string.contains("http://"));
+    assert!(url_string.contains("example.com"));
+    assert!(url_string.contains(":8080"));
+    assert!(url_string.contains("/path"));
+    assert!(url_string.contains("?query=1"));
+    assert!(url_string.contains("#frag"));
+    serial_println!("  URL to string: OK");
+
+    serial_println!("[TEST 5] HTTP Request - GET method");
+    let url = network::Url::parse("http://example.com/index.html").unwrap();
+    let request = network::HttpRequest::get(url.clone());
+
+    serial_println!("  Method: {:?}", request.method);
+    serial_println!("  URL: {}", request.url.to_string());
+    serial_println!("  Headers count: {}", request.headers.len());
+
+    assert_eq!(request.method, network::HttpMethod::GET);
+    assert_eq!(request.url, url);
+    assert!(request.headers.len() >= 3); // Host, User-Agent, Accept
+    serial_println!("  HTTP GET request: OK");
+
+    serial_println!("[TEST 6] HTTP Request String");
+    let url = network::Url::parse("http://example.com/api/data?key=value").unwrap();
+    let request = network::HttpRequest::get(url);
+    let request_string = request.to_request_string();
+
+    serial_println!("  Request string (first 50 chars): {}...",
+        if request_string.len() > 50 { &request_string[..50] } else { &request_string });
+
+    assert!(request_string.starts_with("GET /api/data?key=value HTTP/1.1\r\n"));
+    assert!(request_string.contains("Host: example.com\r\n"));
+    assert!(request_string.contains("User-Agent: ASTRA.OS-Browser/0.1\r\n"));
+    assert!(request_string.ends_with("\r\n\r\n"));
+    serial_println!("  HTTP request string: OK");
+
+    serial_println!("[TEST 7] HTTP Response Parsing");
+    let response_data = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 13\r\n\r\n<html></html>";
+    let response = network::parse_response(response_data).unwrap();
+
+    serial_println!("  Status code: {}", response.status.code);
+    serial_println!("  Status reason: {}", response.status.reason);
+    serial_println!("  Headers count: {}", response.headers.len());
+    serial_println!("  Body length: {}", response.body.len());
+
+    assert_eq!(response.status.code, 200);
+    assert_eq!(response.status.reason, "OK");
+    assert!(response.status.is_success());
+    assert_eq!(response.get_header("Content-Type"), Some(&String::from("text/html")));
+    assert_eq!(response.content_length(), Some(13));
+    assert_eq!(response.body, b"<html></html>");
+    serial_println!("  HTTP response parsing: OK");
+
+    serial_println!("[TEST 8] HTTP Status - Redirects and Errors");
+    let redirect_data = b"HTTP/1.1 301 Moved Permanently\r\nLocation: /new-path\r\n\r\n";
+    let redirect_response = network::parse_response(redirect_data).unwrap();
+
+    serial_println!("  Redirect status: {}", redirect_response.status.code);
+    assert_eq!(redirect_response.status.code, 301);
+    assert!(redirect_response.status.is_redirect());
+    serial_println!("  HTTP redirect detection: OK");
+
+    let error_data = b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nNot found";
+    let error_response = network::parse_response(error_data).unwrap();
+
+    serial_println!("  Error status: {}", error_response.status.code);
+    assert_eq!(error_response.status.code, 404);
+    assert!(error_response.status.is_client_error());
+    serial_println!("  HTTP error detection: OK");
+
+    serial_println!("[TEST 9] Resource Type Detection - From URL");
+    let html_url = network::Url::parse("http://example.com/page.html").unwrap();
+    let css_url = network::Url::parse("http://example.com/style.css").unwrap();
+    let js_url = network::Url::parse("http://example.com/script.js").unwrap();
+    let img_url = network::Url::parse("http://example.com/image.png").unwrap();
+
+    assert_eq!(resource::ResourceType::from_url(&html_url), resource::ResourceType::Html);
+    assert_eq!(resource::ResourceType::from_url(&css_url), resource::ResourceType::Css);
+    assert_eq!(resource::ResourceType::from_url(&js_url), resource::ResourceType::JavaScript);
+    assert_eq!(resource::ResourceType::from_url(&img_url), resource::ResourceType::Image);
+    serial_println!("  Resource type from URL: OK");
+
+    serial_println!("[TEST 10] Resource Type Detection - From Content-Type");
+    assert_eq!(
+        resource::ResourceType::from_content_type("text/html; charset=utf-8"),
+        resource::ResourceType::Html
+    );
+    assert_eq!(
+        resource::ResourceType::from_content_type("text/css"),
+        resource::ResourceType::Css
+    );
+    assert_eq!(
+        resource::ResourceType::from_content_type("application/javascript"),
+        resource::ResourceType::JavaScript
+    );
+    assert_eq!(
+        resource::ResourceType::from_content_type("image/png"),
+        resource::ResourceType::Image
+    );
+    serial_println!("  Resource type from content-type: OK");
+
+    serial_println!("[TEST 11] Resource Loader - Initialization");
+    let loader = resource::ResourceLoader::new();
+    serial_println!("  Resource loader created successfully");
+    serial_println!("  Resource loader: OK");
+
+    serial_println!("[TEST 12] Resource - Creation and String Conversion");
+    let url = network::Url::parse("http://example.com/test.html").unwrap();
+    let data = b"<html><body>Test</body></html>".to_vec();
+    let resource = resource::Resource::new(url.clone(), data);
+
+    serial_println!("  Resource URL: {}", resource.url.to_string());
+    serial_println!("  Resource type: {:?}", resource.resource_type);
+
+    assert_eq!(resource.resource_type, resource::ResourceType::Html);
+    assert_eq!(resource.url, url);
+
+    if let Some(content) = resource.as_string() {
+        serial_println!("  Resource content: {}", content);
+        assert_eq!(content, "<html><body>Test</body></html>");
+    }
+    serial_println!("  Resource creation: OK");
+
+    serial_println!("=== Phase 5 Tests Complete ===\n");
 }
 
 /// Jump from Ring 0 (kernel) to Ring 3 (userspace)
