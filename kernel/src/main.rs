@@ -19,6 +19,7 @@ mod memory;
 mod serial;
 // mod ui; // TODO: UI 모듈을 픽셀 그래픽에 맞게 업데이트 필요
 mod network;
+mod html;
 
 entry_point!(kernel_main);
 
@@ -54,48 +55,28 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     drivers::framebuffer::init();
     serial_println!("Framebuffer initialized");
 
-    // Phase 4: 픽셀 그래픽 데모
-    use drivers::framebuffer::{with_framebuffer, fill_rect, draw_rect, WIDTH, HEIGHT};
+    // Phase 5: HTML 렌더링!
+    use drivers::framebuffer::{fill_rect, WIDTH, HEIGHT};
 
-    serial_println!("=== fill_rect 테스트 시작 ===");
+    serial_println!("=== HTML Rendering Test ===");
 
-    // 100x100 테스트
-    serial_println!("  Testing 100x100...");
-    fill_rect(0, 0, 100, 100, Rgb888::new(255, 0, 0));
-    serial_println!("  100x100 OK!");
+    // 화면 초기화
+    fill_rect(0, 0, WIDTH, HEIGHT, Rgb888::new(10, 10, 30));
 
-    // 전체 화면 테스트
-    serial_println!("  Testing full screen clear...");
-    fill_rect(0, 0, WIDTH, HEIGHT, Rgb888::BLACK);
-    serial_println!("  Full screen OK!");
+    // HTML 파싱 테스트
+    serial_println!("Testing HTML parser...");
+    let html = "<h1>Hello</h1>";
 
-    serial_println!("  Testing full width (320x20)...");
-    fill_rect(0, 0, WIDTH, 20, Rgb888::BLACK);
-    serial_println!("  320x20 OK");
+    serial_println!("Parsing HTML: {}", html);
+    let dom = html::Parser::parse(html);
+    serial_println!("Parse successful!");
 
-    serial_println!("  Testing full screen...");
-    fill_rect(0, 0, WIDTH, HEIGHT, Rgb888::BLACK);
-    serial_println!("  Full screen OK");
+    serial_println!("Rendering to VGA...");
+    let mut renderer = html::renderer::Renderer::new();
+    renderer.render(&dom);
+    serial_println!("Rendering complete!");
 
-    // 타이틀 바 (파란색)
-    fill_rect(0, 0, WIDTH, 20, Rgb888::new(0, 0, 180));
-    serial_println!("  Title bar drawn");
-
-    // 상태 박스들 (녹색)
-    fill_rect(20, 30, 60, 30, Rgb888::new(0, 150, 0));
-    fill_rect(90, 30, 60, 30, Rgb888::new(0, 150, 0));
-    fill_rect(160, 30, 60, 30, Rgb888::new(0, 150, 0));
-    fill_rect(230, 30, 60, 30, Rgb888::new(0, 150, 0));
-    serial_println!("  Status boxes drawn");
-
-    // 하단 상태 바 (회색)
-    fill_rect(0, 180, WIDTH, 20, Rgb888::new(80, 80, 80));
-    serial_println!("  Status bar drawn");
-
-    serial_println!("UI drawn successfully!");
-    serial_println!("Resolution: {}x{}", WIDTH, HEIGHT);
-    serial_println!("Pixel graphics enabled!");
-    serial_println!("Kernel initialized successfully!");
+    serial_println!("HTML displayed successfully!");
     serial_println!("Entering idle loop...");
 
     // 메인 루프
