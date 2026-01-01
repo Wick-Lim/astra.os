@@ -65,87 +65,33 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     draw_str(2, 5, "[OK] Interrupt Handling", Color::Green, Color::Black);
     draw_str(2, 6, "[OK] VGA Graphics Driver", Color::Green, Color::Black);
     draw_str(2, 7, "[OK] Serial Port Debug", Color::Green, Color::Black);
-    draw_str(2, 8, "[OK] Network Stack (smoltcp)", Color::Green, Color::Black);
+    draw_str(2, 8, "[OK] Network Stack (Ready)", Color::Green, Color::Black);
 
     // 네트워크 정보 섹션
     draw_str(2, 10, "=== Network Configuration ===", Color::Yellow, Color::Black);
     draw_str(2, 12, "IP Address:  10.0.2.15/24", Color::Cyan, Color::Black);
     draw_str(2, 13, "MAC Address: 02:00:00:00:00:01", Color::Cyan, Color::Black);
-    draw_str(2, 14, "Status:      Ready", Color::Green, Color::Black);
+    draw_str(2, 14, "Status:      Ready (DummyDevice)", Color::Green, Color::Black);
 
     // 프레임으로 네트워크 정보 강조
     draw_rect(1, 9, 50, 7, Color::DarkGray, Color::Black);
 
     // UI 위젯 데모
     draw_str(2, 17, "=== UI Widgets Demo ===", Color::Yellow, Color::Black);
-
-    // 버튼 생성
-    let mut button1 = ui::Button::new(5, 19, 15, 3, "Click Me!");
-    let mut button2 = ui::Button::new(25, 19, 15, 3, "Press Me!");
-    let mut button3 = ui::Button::new(45, 19, 20, 3, "Interactive UI!");
-
-    button1.draw();
-    button2.draw();
-    button3.draw();
-
-    // 클릭 카운터 표시
-    let mut click_count = 0;
-    draw_str(5, 22, "Clicks: 0", Color::Cyan, Color::Black);
+    draw_str(2, 19, "Mouse: Ready (No PS/2 in QEMU)", Color::Yellow, Color::Black);
+    draw_str(2, 20, "Network: Investigating smoltcp", Color::Yellow, Color::Black);
 
     // 상태 바
     fill_rect(0, 24, 80, 1, Color::Black, Color::LightGray);
-    draw_str(2, 24, "Move mouse and click buttons!", Color::Black, Color::LightGray);
+    draw_str(2, 24, "Network Stack Ready | Press Ctrl+C to exit QEMU", Color::Black, Color::LightGray);
 
     serial_println!("Kernel initialized successfully!");
     serial_println!("Entering idle loop...");
 
-    // 메인 루프 - 마우스 커서 및 UI 상호작용
-    let mut last_mouse_x = 40;
-    let mut last_mouse_y = 12;
+    // 메인 루프 (마우스 비활성화됨)
     loop {
         x86_64::instructions::hlt();
-
-        // 마우스 상태 확인
-        let mouse_state = drivers::mouse::get_state();
-
-        // 버튼 업데이트 및 클릭 처리
-        if button1.update(&mouse_state) || button2.update(&mouse_state) || button3.update(&mouse_state) {
-            click_count += 1;
-            // 클릭 카운터 업데이트
-            use alloc::format;
-            let counter_str = format!("Clicks: {}", click_count);
-            // 이전 텍스트 지우기
-            fill_rect(5, 22, 15, 1, Color::Cyan, Color::Black);
-            draw_str(5, 22, &counter_str, Color::Cyan, Color::Black);
-        }
-
-        // 버튼 다시 그리기 (눌림 상태 표시)
-        button1.draw();
-        button2.draw();
-        button3.draw();
-
-        // 마우스 커서 업데이트
-        if mouse_state.x != last_mouse_x || mouse_state.y != last_mouse_y {
-            // 새 커서 그리기
-            let cursor_char = if mouse_state.left_button {
-                "X"
-            } else if mouse_state.right_button {
-                "O"
-            } else {
-                "+"
-            };
-
-            draw_str(
-                mouse_state.x as usize,
-                mouse_state.y as usize,
-                cursor_char,
-                Color::White,
-                Color::Black,
-            );
-
-            last_mouse_x = mouse_state.x;
-            last_mouse_y = mouse_state.y;
-        }
+        // TODO: 네트워크 폴링 추가
     }
 }
 

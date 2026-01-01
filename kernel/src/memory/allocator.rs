@@ -7,8 +7,8 @@ use x86_64::{VirtAddr, PhysAddr};
 
 /// 힙의 시작 주소
 pub const HEAP_START: usize = 0x_4444_4444_0000;
-/// 힙 크기 (1 MiB) - 나중에 늘릴 수 있음
-pub const HEAP_SIZE: usize = 1 * 1024 * 1024;
+/// 힙 크기 (2 MiB) - 안정성을 위해 적절한 크기로 설정
+pub const HEAP_SIZE: usize = 2 * 1024 * 1024;
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
