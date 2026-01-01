@@ -20,8 +20,9 @@ run: build
 		-drive format=raw,file=target/x86_64-browser_os/release/bootimage-kernel.bin \
 		-device virtio-net,netdev=net0 \
 		-netdev user,id=net0 \
-		-m 512M \
-		-serial stdio
+		-m 256M \
+		-serial stdio \
+		-display cocoa
 
 # 클린
 clean:
