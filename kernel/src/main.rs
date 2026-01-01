@@ -12,6 +12,7 @@ mod interrupts;
 mod memory;
 mod serial;
 mod ui;
+mod network;
 
 entry_point!(kernel_main);
 
@@ -37,6 +38,11 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     drivers::mouse::init();
     serial_println!("Mouse initialized");
 
+    serial_println!("Initializing network stack...");
+    // 네트워크 스택 초기화
+    network::init();
+    serial_println!("Network stack initialized");
+
     serial_println!("Initializing framebuffer...");
     // 프레임버퍼 초기화
     drivers::framebuffer::init();
@@ -51,7 +57,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     // 타이틀 바
     fill_rect(0, 0, 80, 1, Color::White, Color::Blue);
-    draw_str(2, 0, "Browser OS v0.1.0 - Phase 2: Graphics & UI", Color::White, Color::Blue);
+    draw_str(2, 0, "Browser OS v0.1.0 - Phase 3: Network Stack", Color::White, Color::Blue);
 
     // 메인 컨텐츠 영역
     draw_str(2, 2, "=== Kernel Features ===", Color::Yellow, Color::Black);
@@ -59,17 +65,16 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     draw_str(2, 5, "[OK] Interrupt Handling", Color::Green, Color::Black);
     draw_str(2, 6, "[OK] VGA Graphics Driver", Color::Green, Color::Black);
     draw_str(2, 7, "[OK] Serial Port Debug", Color::Green, Color::Black);
+    draw_str(2, 8, "[OK] Network Stack (smoltcp)", Color::Green, Color::Black);
 
-    // 그래픽 데모 박스
-    draw_str(2, 9, "=== Graphics Demo ===", Color::Yellow, Color::Black);
+    // 네트워크 정보 섹션
+    draw_str(2, 10, "=== Network Configuration ===", Color::Yellow, Color::Black);
+    draw_str(2, 12, "IP Address:  10.0.2.15/24", Color::Cyan, Color::Black);
+    draw_str(2, 13, "MAC Address: 02:00:00:00:00:01", Color::Cyan, Color::Black);
+    draw_str(2, 14, "Status:      Ready", Color::Green, Color::Black);
 
-    // 사각형 테두리 데모
-    draw_rect(5, 11, 20, 5, Color::Cyan, Color::Black);
-    draw_str(7, 12, "Box Demo 1", Color::Cyan, Color::Black);
-
-    // 채워진 사각형 데모
-    fill_rect(30, 11, 20, 5, Color::White, Color::Magenta);
-    draw_str(32, 13, "Box Demo 2", Color::White, Color::Magenta);
+    // 프레임으로 네트워크 정보 강조
+    draw_rect(1, 9, 50, 7, Color::DarkGray, Color::Black);
 
     // UI 위젯 데모
     draw_str(2, 17, "=== UI Widgets Demo ===", Color::Yellow, Color::Black);
