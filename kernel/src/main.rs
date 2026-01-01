@@ -33,6 +33,7 @@ mod html;
 mod keyboard;
 mod fs;
 mod css;
+mod layout;
 
 entry_point!(kernel_main);
 
@@ -92,6 +93,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // Phase 3 테스트: CSS parser and selector matching
     serial_println!("\n=== Phase 3 Tests ===");
     test_phase3_css();
+    test_phase4_layout();
 
     serial_println!("\nGoing to Ring 3...\n");
 
@@ -308,6 +310,128 @@ fn test_phase3_css() {
     serial_println!("  Default stylesheet has {} rules", default_styles.rules.len());
 
     serial_println!("=== Phase 3 Tests Complete ===\n");
+}
+
+/// Phase 4 기능 테스트: Layout Engine (Box Model + Block/Inline Layout)
+fn test_phase4_layout() {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+    use alloc::boxed::Box;
+
+    serial_println!("=== Phase 4 Tests ===");
+
+    serial_println!("[TEST 1] Box Model - Dimensions");
+    // Test basic dimensions
+    let mut dims = layout::Dimensions::new();
+    dims.content = layout::Rect::new(10, 10, 100, 50);
+    dims.padding = layout::EdgeSizes::uniform(5);
+    dims.border = layout::EdgeSizes::uniform(2);
+    dims.margin = layout::EdgeSizes::uniform(10);
+
+    serial_println!("  Content box: {}x{} at ({}, {})",
+        dims.content.width, dims.content.height,
+        dims.content.x, dims.content.y);
+
+    let border_width = dims.border_box_width();
+    let margin_width = dims.margin_box_width();
+    serial_println!("  Border box width: {} (expected: 114)", border_width);
+    serial_println!("  Margin box width: {} (expected: 134)", margin_width);
+
+    assert_eq!(border_width, 114); // 100 + 10(padding) + 4(border)
+    assert_eq!(margin_width, 134); // 114 + 20(margin)
+    serial_println!("  Box model calculations: OK");
+
+    serial_println!("[TEST 2] Box Model - Rectangles");
+    let padding_box = dims.padding_box();
+    let border_box = dims.border_box();
+    let margin_box = dims.margin_box();
+
+    serial_println!("  Padding box: {}x{}", padding_box.width, padding_box.height);
+    serial_println!("  Border box: {}x{}", border_box.width, border_box.height);
+    serial_println!("  Margin box: {}x{}", margin_box.width, margin_box.height);
+
+    assert_eq!(padding_box.width, 110); // 100 + 10
+    assert_eq!(border_box.width, 114);  // 110 + 4
+    assert_eq!(margin_box.width, 134);  // 114 + 20
+    serial_println!("  Rectangle calculations: OK");
+
+    serial_println!("[TEST 3] Layout Tree Construction");
+    // Create simple HTML tree
+    let body_attrs = Vec::new();
+    let body_node = html::Node::element(
+        String::from("body"),
+        body_attrs,
+        Vec::new()
+    );
+
+    // Create stylesheet
+    let stylesheet = css::Stylesheet::default_styles();
+
+    // Build layout tree
+    if let Some(layout_tree) = layout::build_layout_tree(&body_node, &stylesheet) {
+        serial_println!("  Layout tree created successfully");
+        serial_println!("  Root box type: {:?}", layout_tree.box_type);
+        serial_println!("  Root element: {:?}", layout_tree.element_name);
+        assert_eq!(layout_tree.box_type, layout::BoxType::Block);
+        serial_println!("  Layout tree construction: OK");
+    } else {
+        serial_println!("  ERROR: Failed to create layout tree");
+    }
+
+    serial_println!("[TEST 4] Block Layout Calculation");
+    // Create a simple block box with style
+    let mut style = css::ComputedStyle::new();
+    style.set(String::from("width"), css::PropertyValue::Length(200));
+    style.set(String::from("margin"), css::PropertyValue::Length(15));
+    style.set(String::from("padding"), css::PropertyValue::Length(10));
+
+    let mut block_box = Box::new(layout::LayoutBox::new(layout::BoxType::Block, style));
+    block_box.element_name = Some(String::from("div"));
+
+    // Create containing block (like browser viewport)
+    let containing_block = layout::Dimensions {
+        content: layout::Rect::new(0, 0, 800, 600),
+        ..layout::Dimensions::default()
+    };
+
+    // Calculate layout
+    layout::layout_tree(&mut block_box, containing_block);
+
+    serial_println!("  Block width: {} (expected: 200)", block_box.dimensions.content.width);
+    serial_println!("  Block position: ({}, {})",
+        block_box.dimensions.content.x,
+        block_box.dimensions.content.y);
+    serial_println!("  Margin: {}", block_box.dimensions.margin.left);
+    serial_println!("  Padding: {}", block_box.dimensions.padding.left);
+
+    assert_eq!(block_box.dimensions.content.width, 200);
+    assert_eq!(block_box.dimensions.margin.left, 15);
+    assert_eq!(block_box.dimensions.padding.left, 10);
+    serial_println!("  Block layout calculation: OK");
+
+    serial_println!("[TEST 5] Complete Layout Tree");
+    // Create a more complex tree
+    let mut h1_attrs = Vec::new();
+    h1_attrs.push((String::from("class"), String::from("title")));
+
+    let h1_node = html::Node::element(
+        String::from("h1"),
+        h1_attrs,
+        Vec::new()
+    );
+
+    if let Some(mut h1_layout) = layout::build_layout_tree(&h1_node, &stylesheet) {
+        // Layout the h1 element
+        layout::layout_tree(&mut h1_layout, containing_block);
+
+        serial_println!("  H1 layout computed successfully");
+        serial_println!("  H1 dimensions: {}x{}",
+            h1_layout.dimensions.content.width,
+            h1_layout.dimensions.content.height);
+        serial_println!("  Complete layout tree: OK");
+    }
+
+    serial_println!("=== Phase 4 Tests Complete ===\n");
 }
 
 /// Jump from Ring 0 (kernel) to Ring 3 (userspace)
