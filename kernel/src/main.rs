@@ -30,6 +30,7 @@ mod syscall;
 mod simple_html;
 mod userspace_code;
 mod html;
+mod keyboard;
 
 entry_point!(kernel_main);
 

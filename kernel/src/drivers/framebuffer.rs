@@ -428,3 +428,52 @@ pub fn draw_char(ch: char, x: usize, y: usize, color: Rgb888) {
         }
     })
 }
+
+/// Draw a string at (x, y) with given color
+/// Returns the x position after the last character
+pub fn draw_string(s: &str, x: usize, y: usize, color: Rgb888) -> usize {
+    let mut current_x = x;
+
+    for ch in s.chars() {
+        if ch == '\n' {
+            // Newline support - would need y tracking
+            break;
+        }
+
+        if current_x + 8 > WIDTH {
+            // Reached edge of screen
+            break;
+        }
+
+        draw_char(ch, current_x, y, color);
+        current_x += 8; // Move to next character position
+    }
+
+    current_x
+}
+
+/// Draw multiline text with automatic line wrapping
+pub fn draw_text(text: &str, x: usize, y: usize, color: Rgb888, max_width: usize) {
+    let mut current_x = x;
+    let mut current_y = y;
+    let line_height = 10; // 8 pixels + 2 spacing
+
+    for ch in text.chars() {
+        if ch == '\n' || current_x + 8 > x + max_width {
+            // Move to next line
+            current_x = x;
+            current_y += line_height;
+
+            if current_y + 8 > HEIGHT {
+                break; // Reached bottom of screen
+            }
+
+            if ch == '\n' {
+                continue; // Skip the newline character
+            }
+        }
+
+        draw_char(ch, current_x, current_y, color);
+        current_x += 8;
+    }
+}

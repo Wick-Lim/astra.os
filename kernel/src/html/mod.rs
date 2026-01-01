@@ -2,6 +2,8 @@
 // This is a simplified version focusing on essential HTML parsing for a browser OS
 // Based on html5ever concepts but adapted for no_std environment
 
+pub mod renderer;
+
 use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::boxed::Box;

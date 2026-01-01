@@ -152,16 +152,34 @@ fn sys_write(fd: usize, buf: usize, count: usize) -> isize {
 /// sys_read - read from file descriptor
 ///
 /// # Arguments
-/// - fd: file descriptor
+/// - fd: file descriptor (0 = stdin)
 /// - buf: pointer to buffer (userspace address)
 /// - count: number of bytes to read
 ///
 /// # Returns
 /// Number of bytes read, or negative error code
-fn sys_read(_fd: usize, _buf: usize, _count: usize) -> isize {
-    // TODO: Implement keyboard input
-    crate::serial_println!("[SYSCALL] sys_read not implemented");
-    -1 // ENOSYS
+fn sys_read(fd: usize, buf: usize, count: usize) -> isize {
+    // Only support stdin for now
+    if fd != 0 {
+        return -9; // EBADF - bad file descriptor
+    }
+
+    if count == 0 {
+        return 0;
+    }
+
+    // TODO: Validate userspace pointer is accessible
+    // For now, trust the pointer (UNSAFE!)
+
+    unsafe {
+        let slice = core::slice::from_raw_parts_mut(buf as *mut u8, count);
+
+        // Read from keyboard buffer
+        let bytes_read = crate::keyboard::KEYBOARD_BUFFER.lock().read(slice);
+
+        crate::serial_println!("[SYSCALL] sys_read: read {} bytes from keyboard", bytes_read);
+        bytes_read as isize
+    }
 }
 
 /// sys_exit - terminate process
