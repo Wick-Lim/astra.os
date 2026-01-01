@@ -15,6 +15,7 @@ pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
     Keyboard,
     Mouse = PIC_2_OFFSET + 4, // IRQ12
+    Syscall = 0x80,  // System call interrupt
 }
 
 impl InterruptIndex {
@@ -47,6 +48,10 @@ lazy_static! {
             .set_handler_fn(keyboard_interrupt_handler);
         idt[InterruptIndex::Mouse.as_u8()]
             .set_handler_fn(mouse_interrupt_handler);
+
+        // System call handler
+        idt[InterruptIndex::Syscall.as_u8()]
+            .set_handler_fn(syscall_handler);
 
         idt
     };
@@ -117,5 +122,41 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFr
     unsafe {
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Mouse.as_u8());
+    }
+}
+
+// === System Call Handler ===
+
+extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
+    unsafe {
+        // Read syscall number and arguments from registers
+        let syscall_num: u64;
+        let arg1: u64;
+        let arg2: u64;
+        let arg3: u64;
+
+        core::arch::asm!(
+            "nop",  // Placeholder - registers already have the values
+            lateout("rax") syscall_num,
+            lateout("rdi") arg1,
+            lateout("rsi") arg2,
+            lateout("rdx") arg3,
+        );
+
+        // Call syscall handler
+        let result = crate::syscall::handle_syscall(
+            syscall_num,
+            arg1,
+            arg2,
+            arg3,
+            0, // arg4
+            0, // arg5
+        );
+
+        // Return value in rax
+        core::arch::asm!(
+            "nop",
+            in("rax") result,
+        );
     }
 }

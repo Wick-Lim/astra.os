@@ -1,8 +1,7 @@
-// ASTRA.OS - Custom std integration ready (temporarily disabled due to libc dependency issues)
+// ASTRA.OS - Browser OS Kernel with Userspace Support
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
-// #![feature(restricted_std)]  // For std support - ready for future use
 
 extern crate alloc;
 // Custom std backend implemented in rust-std-fork/library/std/src/sys/pal/astra_os/
@@ -18,12 +17,16 @@ use embedded_graphics::{
 };
 
 mod drivers;
+mod gdt;
 mod interrupts;
 mod memory;
 mod serial;
 // mod ui; // TODO: UI 모듈을 픽셀 그래픽에 맞게 업데이트 필요
 mod network;
-mod html;
+mod process;
+mod syscall;
+mod simple_html;
+mod userspace_code;
 
 entry_point!(kernel_main);
 
@@ -38,6 +41,11 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // 메모리 초기화
     memory::init(boot_info);
     serial_println!("Memory initialized");
+
+    serial_println!("Initializing GDT...");
+    // GDT 초기화 (Ring 3 세그먼트 포함)
+    gdt::init();
+    serial_println!("GDT initialized with userspace segments");
 
     serial_println!("Initializing interrupts...");
     // 인터럽트 초기화
@@ -113,9 +121,50 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     serial_println!("OK - std library working correctly!");
 
-    // 메인 루프
-    loop {
-        x86_64::instructions::hlt();
+    serial_println!("\n=== Jumping to Ring 3 userspace ===\n");
+
+    // Jump to userspace (Ring 3)
+    jump_to_userspace();
+}
+
+/// Jump from Ring 0 (kernel) to Ring 3 (userspace)
+fn jump_to_userspace() -> ! {
+    use x86_64::VirtAddr;
+
+    // Get userspace entry point
+    let userspace_entry = userspace_code::get_userspace_entry();
+    serial_println!("Userspace entry point: {:#x}", userspace_entry);
+
+    // Allocate user stack (for now, use a static array)
+    static mut USER_STACK: [u8; 8192] = [0; 8192];
+    let user_stack_top = unsafe {
+        VirtAddr::from_ptr(USER_STACK.as_ptr()).as_u64() + USER_STACK.len() as u64
+    };
+    serial_println!("User stack: {:#x}", user_stack_top);
+
+    // Get user segment selectors
+    let user_cs = gdt::user_code_selector().0 as u64;
+    let user_ss = gdt::user_data_selector().0 as u64;
+
+    serial_println!("User CS: {:#x}, User SS: {:#x}", user_cs, user_ss);
+    serial_println!("Executing iretq to Ring 3...");
+
+    unsafe {
+        core::arch::asm!(
+            // Push values for iretq (in reverse order)
+            "push {ss}",          // SS (user data segment)
+            "push {rsp}",         // RSP (user stack pointer)
+            "pushfq",             // RFLAGS
+            "push {cs}",          // CS (user code segment)
+            "push {rip}",         // RIP (user code entry point)
+            "iretq",              // Return to Ring 3
+
+            ss = in(reg) user_ss,
+            rsp = in(reg) user_stack_top,
+            cs = in(reg) user_cs,
+            rip = in(reg) userspace_entry,
+            options(noreturn)
+        );
     }
 }
 

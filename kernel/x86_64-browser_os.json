@@ -6,7 +6,6 @@
   "target-pointer-width": 64,
   "target-c-int-width": 32,
   "os": "astra_os",
-  "target-family": ["unix"],
   "executables": true,
   "linker-flavor": "ld.lld",
   "linker": "rust-lld",

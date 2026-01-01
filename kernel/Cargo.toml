@@ -18,12 +18,8 @@ volatile = "0.2"
 smoltcp = { version = "0.11", default-features = false, features = ["alloc", "proto-ipv4", "socket-tcp", "socket-udp", "medium-ethernet"] }
 embedded-graphics = { version = "0.8", default-features = false }
 
-# Servo core libraries (temporarily disabled for initial std integration)
-# html5ever = "0.27"
-# markup5ever = "0.12"
-# markup5ever_rcdom = "0.3"
-# tendril = "0.4"
-# string_cache = "0.8"
+# HTML parsing - simple no_std implementation
+# (Servo dependencies removed due to std requirements)
 
 [dependencies.lazy_static]
 version = "1.4"
