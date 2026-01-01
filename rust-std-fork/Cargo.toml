@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "library/std",
+    "library/core",
+    "library/alloc",
+    "library/proc_macro",
+    "library/test",
+    "library/unwind",
+    "library/panic_abort",
+    "library/panic_unwind",
+]
+
+[workspace.package]
+edition = "2021"

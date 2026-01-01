@@ -4,7 +4,19 @@
 
 use crate::io as std_io;
 
-pub mod alloc;
+// Macro for unsupported operations
+macro_rules! unsupported {
+    () => {
+        return Err(crate::io::Error::new(
+            crate::io::ErrorKind::Unsupported,
+            "operation not supported on ASTRA.OS",
+        ))
+    };
+}
+// Don't export the macro - let it be used via macro namespace only
+// This allows the unsupported() function to coexist
+
+//pub mod alloc; // alloc is in sys/alloc/astra_os.rs, not here
 pub mod args;
 pub mod env;
 pub mod fs;
@@ -18,6 +30,7 @@ pub mod time;
 
 // Note: We don't use common::alloc, we have our own in sys/alloc/astra_os.rs
 
+// Function version for code that calls unsupported() as a function
 #[inline]
 pub const fn unsupported<T>() -> std_io::Result<T> {
     Err(unsupported_err())
@@ -27,6 +40,9 @@ pub const fn unsupported<T>() -> std_io::Result<T> {
 pub const fn unsupported_err() -> std_io::Error {
     std_io::const_error!(std_io::ErrorKind::Unsupported, "operation not supported on ASTRA.OS")
 }
+
+// Re-export is_interrupted for sys level
+pub use os::is_interrupted;
 
 pub fn decode_error_kind(_code: i32) -> std_io::ErrorKind {
     std_io::ErrorKind::Uncategorized

@@ -360,3 +360,13 @@ pub fn canonicalize(_p: &Path) -> io::Result<PathBuf> {
 pub fn copy(_from: &Path, _to: &Path) -> io::Result<u64> {
     unsupported!()
 }
+
+pub fn getcwd() -> io::Result<PathBuf> {
+    // Return root directory as current working directory
+    Ok(PathBuf::from("/"))
+}
+
+pub fn chdir(_p: &Path) -> io::Result<()> {
+    // Stub: pretend to change directory
+    Ok(())
+}

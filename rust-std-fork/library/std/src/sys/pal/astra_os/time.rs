@@ -108,11 +108,11 @@ impl SystemTime {
         }
     }
 
-    pub fn sub_time(&self, other: &SystemTime) -> Result<Duration, ()> {
+    pub fn sub_time(&self, other: &SystemTime) -> Result<Duration, Duration> {
         if self.seconds >= other.seconds {
             Ok(Duration::from_secs(self.seconds - other.seconds))
         } else {
-            Err(())
+            Err(Duration::from_secs(other.seconds - self.seconds))
         }
     }
 
@@ -136,3 +136,6 @@ impl fmt::Debug for SystemTime {
             .finish()
     }
 }
+
+// Re-export UNIX_EPOCH at module level for std::time
+pub const UNIX_EPOCH: SystemTime = SystemTime::UNIX_EPOCH;
