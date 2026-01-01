@@ -71,32 +71,16 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use alloc::vec;
     use html::Node;
 
-    serial_println!("Creating DOM directly...");
-
-    // Test 1: Simple text in h1
-    let text1 = String::from("ASTRA Browser");
-    let dom1 = Node::Element {
-        tag: String::from("h1"),
-        children: vec![Node::Text(text1)],
-    };
-
-    serial_println!("DOM 1 created!");
-
-    // Test 2: Paragraph
-    let text2 = String::from("Testing ASCII: 0123456789");
-    let dom2 = Node::Element {
-        tag: String::from("p"),
-        children: vec![Node::Text(text2)],
-    };
-
-    serial_println!("DOM 2 created!");
-
-    serial_println!("Rendering to VGA...");
+    serial_println!("Creating and rendering HTML...");
     let mut renderer = html::renderer::Renderer::new();
-    renderer.render(&dom1);
-    serial_println!("First element rendered!");
-    renderer.render(&dom2);
-    serial_println!("Second element rendered!");
+
+    // Render single page with h1
+    let dom = Node::Element {
+        tag: String::from("h1"),
+        children: vec![Node::Text(String::from("ASTRA Browser - Phase 1"))],
+    };
+    renderer.render(&dom);
+    serial_println!("HTML rendered successfully!");
     serial_println!("Rendering complete!");
 
     serial_println!("HTML displayed successfully!");
