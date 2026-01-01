@@ -5,94 +5,16 @@ use x86_64::structures::paging::{
 use x86_64::{VirtAddr, PhysAddr};
 use core::alloc::{GlobalAlloc, Layout};
 use core::ptr::null_mut;
-use spin::Mutex;
+use linked_list_allocator::LockedHeap;
 
 /// 힙의 시작 주소
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 /// 힙 크기 (2 MiB) - 960 페이지 제한으로 인해 이 이상 불가
 pub const HEAP_SIZE: usize = 2 * 1024 * 1024;
 
-/// Bump Allocator - 간단하고 안정적이지만 메모리 재사용 불가
-pub struct BumpAllocator {
-    heap_start: usize,
-    heap_end: usize,
-    next: usize,
-}
-
-impl BumpAllocator {
-    pub const fn new() -> Self {
-        BumpAllocator {
-            heap_start: 0,
-            heap_end: 0,
-            next: 0,
-        }
-    }
-
-    pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
-        self.heap_start = heap_start;
-        self.heap_end = heap_start + heap_size;
-        self.next = heap_start;
-    }
-}
-
-unsafe impl GlobalAlloc for Locked<BumpAllocator> {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut bump = self.lock();
-
-        let alloc_start = align_up(bump.next, layout.align());
-        let alloc_end = match alloc_start.checked_add(layout.size()) {
-            Some(end) => end,
-            None => {
-                crate::serial_println!("ALLOC FAIL: overflow - size={}, align={}", layout.size(), layout.align());
-                return null_mut();
-            }
-        };
-
-        if alloc_end > bump.heap_end {
-            let used = bump.next - bump.heap_start;
-            let total = bump.heap_end - bump.heap_start;
-            crate::serial_println!("ALLOC FAIL: OOM - requested={}, used={}/{}, free={}",
-                layout.size(), used, total, total - used);
-            null_mut() // out of memory
-        } else {
-            let used_before = bump.next - bump.heap_start;
-            bump.next = alloc_end;
-            let used_after = bump.next - bump.heap_start;
-            crate::serial_println!("ALLOC OK: size={}, align={}, used: {} -> {} bytes",
-                layout.size(), layout.align(), used_before, used_after);
-            alloc_start as *mut u8
-        }
-    }
-
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
-        // Bump allocator는 deallocate를 하지 않음
-        // 메모리 재사용 불가 - 순수 bump-only 할당
-        crate::serial_println!("DEALLOC: size={}, align={} (no-op)", _layout.size(), _layout.align());
-    }
-}
-
-pub struct Locked<A> {
-    inner: Mutex<A>,
-}
-
-impl<A> Locked<A> {
-    pub const fn new(inner: A) -> Self {
-        Locked {
-            inner: Mutex::new(inner),
-        }
-    }
-
-    pub fn lock(&self) -> spin::MutexGuard<A> {
-        self.inner.lock()
-    }
-}
-
-fn align_up(addr: usize, align: usize) -> usize {
-    (addr + align - 1) & !(align - 1)
-}
-
+/// LinkedList Allocator - 메모리 재사용 가능한 효율적인 할당자
 #[global_allocator]
-static ALLOCATOR: Locked<BumpAllocator> = Locked::new(BumpAllocator::new());
+static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 /// 힙을 초기화하는 함수
 pub fn init_heap(
@@ -132,11 +54,11 @@ pub fn init_heap(
     }
     serial_println!("    All {} pages mapped", count);
 
-    serial_println!("    Initializing BumpAllocator...");
+    serial_println!("    Initializing LinkedListAllocator...");
     unsafe {
-        ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
+        ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE);
     }
-    serial_println!("    BumpAllocator initialized");
+    serial_println!("    LinkedListAllocator initialized");
 
     Ok(())
 }
@@ -199,7 +121,7 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
 }
 
 /// FFI functions for std library allocation
-/// These forward to our global BumpAllocator
+/// These forward to our global LinkedListAllocator
 
 #[no_mangle]
 pub unsafe extern "C" fn astra_os_alloc(size: usize, align: usize) -> *mut u8 {
@@ -207,7 +129,7 @@ pub unsafe extern "C" fn astra_os_alloc(size: usize, align: usize) -> *mut u8 {
         Ok(layout) => layout,
         Err(_) => return null_mut(),
     };
-    unsafe { ALLOCATOR.alloc(layout) }
+    GlobalAlloc::alloc(&ALLOCATOR, layout)
 }
 
 #[no_mangle]
@@ -216,7 +138,7 @@ pub unsafe extern "C" fn astra_os_dealloc(ptr: *mut u8, size: usize, align: usiz
         Ok(layout) => layout,
         Err(_) => return,
     };
-    unsafe { ALLOCATOR.dealloc(ptr, layout) }
+    GlobalAlloc::dealloc(&ALLOCATOR, ptr, layout)
 }
 
 #[no_mangle]
@@ -230,5 +152,5 @@ pub unsafe extern "C" fn astra_os_realloc(
         Ok(layout) => layout,
         Err(_) => return null_mut(),
     };
-    unsafe { ALLOCATOR.realloc(ptr, old_layout, new_size) }
+    GlobalAlloc::realloc(&ALLOCATOR, ptr, old_layout, new_size)
 }

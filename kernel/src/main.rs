@@ -29,6 +29,7 @@ mod process;
 mod syscall;
 mod simple_html;
 mod userspace_code;
+mod html;
 
 entry_point!(kernel_main);
 
