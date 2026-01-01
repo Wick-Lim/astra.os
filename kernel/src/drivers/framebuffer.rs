@@ -78,6 +78,73 @@ impl Writer {
         }
     }
 
+    /// 특정 위치에 문자 쓰기
+    pub fn write_char_at(&mut self, x: usize, y: usize, byte: u8, fg: Color, bg: Color) {
+        if x >= BUFFER_WIDTH || y >= BUFFER_HEIGHT {
+            return;
+        }
+        let color_code = ColorCode::new(fg, bg);
+        self.buffer.chars[y][x].write(ScreenChar {
+            ascii_character: byte,
+            color_code,
+        });
+    }
+
+    /// 사각형 그리기 (테두리만)
+    pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, fg: Color, bg: Color, ch: u8) {
+        for i in 0..width {
+            if x + i < BUFFER_WIDTH {
+                if y < BUFFER_HEIGHT {
+                    self.write_char_at(x + i, y, ch, fg, bg);
+                }
+                if y + height.saturating_sub(1) < BUFFER_HEIGHT {
+                    self.write_char_at(x + i, y + height.saturating_sub(1), ch, fg, bg);
+                }
+            }
+        }
+        for i in 1..height.saturating_sub(1) {
+            if y + i < BUFFER_HEIGHT {
+                if x < BUFFER_WIDTH {
+                    self.write_char_at(x, y + i, ch, fg, bg);
+                }
+                if x + width.saturating_sub(1) < BUFFER_WIDTH {
+                    self.write_char_at(x + width.saturating_sub(1), y + i, ch, fg, bg);
+                }
+            }
+        }
+    }
+
+    /// 채워진 사각형 그리기
+    pub fn fill_rect(&mut self, x: usize, y: usize, width: usize, height: usize, fg: Color, bg: Color, ch: u8) {
+        for dy in 0..height {
+            for dx in 0..width {
+                if x + dx < BUFFER_WIDTH && y + dy < BUFFER_HEIGHT {
+                    self.write_char_at(x + dx, y + dy, ch, fg, bg);
+                }
+            }
+        }
+    }
+
+    /// 특정 위치에 문자열 쓰기
+    pub fn write_str_at(&mut self, x: usize, y: usize, s: &str, fg: Color, bg: Color) {
+        let mut col = x;
+        for byte in s.bytes() {
+            if col >= BUFFER_WIDTH {
+                break;
+            }
+            match byte {
+                0x20..=0x7e => {
+                    self.write_char_at(col, y, byte, fg, bg);
+                    col += 1;
+                }
+                _ => {
+                    self.write_char_at(col, y, 0xfe, fg, bg);
+                    col += 1;
+                }
+            }
+        }
+    }
+
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
             match byte {
@@ -145,6 +212,21 @@ pub fn init() {
 
 pub fn clear_screen(color: u32) {
     WRITER.lock().clear_screen(color);
+}
+
+/// 특정 위치에 문자열 그리기
+pub fn draw_str(x: usize, y: usize, s: &str, fg: Color, bg: Color) {
+    WRITER.lock().write_str_at(x, y, s, fg, bg);
+}
+
+/// 사각형 테두리 그리기
+pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, fg: Color, bg: Color) {
+    WRITER.lock().draw_rect(x, y, width, height, fg, bg, b'#');
+}
+
+/// 채워진 사각형 그리기
+pub fn fill_rect(x: usize, y: usize, width: usize, height: usize, fg: Color, bg: Color) {
+    WRITER.lock().fill_rect(x, y, width, height, fg, bg, b' ');
 }
 
 pub fn _print(args: fmt::Arguments) {
