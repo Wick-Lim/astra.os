@@ -149,6 +149,70 @@ fn jump_to_userspace() -> ! {
     }
     serial_println!("Userspace pages marked as USER accessible");
 
+    // Ensure kernel stack pages are properly mapped and writable
+    serial_println!("Mapping kernel stack pages...");
+    unsafe {
+        // Get TSS info
+        let tss_info = gdt::get_tss_info();
+        let kernel_stack_top = tss_info.0;
+        let kernel_stack_start = kernel_stack_top - 16384;  // 16KB stack
+        let double_fault_stack_top = tss_info.1;
+        let double_fault_stack_start = double_fault_stack_top - 16384;
+        let timer_int_stack_top = tss_info.2;
+        let timer_int_stack_start = timer_int_stack_top - 16384;
+        let syscall_stack_top = tss_info.3;
+        let syscall_stack_start = syscall_stack_top - 16384;
+
+        serial_println!("  Kernel stack: {:#x} - {:#x}", kernel_stack_start, kernel_stack_top);
+        serial_println!("  Double fault stack: {:#x} - {:#x}", double_fault_stack_start, double_fault_stack_top);
+        serial_println!("  Timer interrupt stack: {:#x} - {:#x}", timer_int_stack_start, timer_int_stack_top);
+        serial_println!("  Syscall stack: {:#x} - {:#x}", syscall_stack_start, syscall_stack_top);
+
+        // Map kernel stack pages as WRITABLE (not user accessible)
+        let kernel_stack_start_page = Page::containing_address(VirtAddr::new(kernel_stack_start));
+        let kernel_stack_end_page = Page::containing_address(VirtAddr::new(kernel_stack_top - 1));
+
+        for page in Page::range_inclusive(kernel_stack_start_page, kernel_stack_end_page) {
+            serial_println!("  Ensuring kernel stack page {:#x} is writable", page.start_address().as_u64());
+            // Kernel stack pages should already be mapped, just ensure WRITABLE flag
+            memory::ensure_page_writable(page);
+        }
+
+        // Map double fault stack pages as WRITABLE
+        let df_stack_start_page = Page::containing_address(VirtAddr::new(double_fault_stack_start));
+        let df_stack_end_page = Page::containing_address(VirtAddr::new(double_fault_stack_top - 1));
+
+        for page in Page::range_inclusive(df_stack_start_page, df_stack_end_page) {
+            serial_println!("  Ensuring double fault stack page {:#x} is writable", page.start_address().as_u64());
+            memory::ensure_page_writable(page);
+        }
+
+        // Map timer interrupt stack pages as WRITABLE
+        let timer_int_stack_start_page = Page::containing_address(VirtAddr::new(timer_int_stack_start));
+        let timer_int_stack_end_page = Page::containing_address(VirtAddr::new(timer_int_stack_top - 1));
+
+        for page in Page::range_inclusive(timer_int_stack_start_page, timer_int_stack_end_page) {
+            serial_println!("  Ensuring timer interrupt stack page {:#x} is writable", page.start_address().as_u64());
+            memory::ensure_page_writable(page);
+        }
+
+        // Map syscall stack pages as WRITABLE
+        let syscall_stack_start_page = Page::containing_address(VirtAddr::new(syscall_stack_start));
+        let syscall_stack_end_page = Page::containing_address(VirtAddr::new(syscall_stack_top - 1));
+
+        for page in Page::range_inclusive(syscall_stack_start_page, syscall_stack_end_page) {
+            serial_println!("  Ensuring syscall stack page {:#x} is writable", page.start_address().as_u64());
+            memory::ensure_page_writable(page);
+        }
+
+        serial_println!("  Kernel stacks mapped successfully");
+
+        // Now test kernel stack is writable
+        let test_addr = (kernel_stack_top - 8) as *mut u64;
+        *test_addr = 0xDEADBEEF;
+        serial_println!("  Kernel stack write test OK");
+    }
+
     // Get user segment selectors
     let user_cs = gdt::user_code_selector().0 as u64;
     let user_ss = gdt::user_data_selector().0 as u64;
@@ -170,6 +234,7 @@ fn jump_to_userspace() -> ! {
             "push {rsp}",         // RSP (user stack pointer)
             "pushfq",             // RFLAGS (with current flags)
             "and qword ptr [rsp], ~0x200",  // Clear IF (keep interrupts disabled for now)
+            "or qword ptr [rsp], 0x3000",   // Set IOPL=3 (bits 12-13) - allow STI/CLI in Ring 3
             "push {cs}",          // CS (user code segment)
             "push {rip}",         // RIP (user code entry point)
             "iretq",              // Return to Ring 3

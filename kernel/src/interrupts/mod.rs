@@ -48,17 +48,24 @@ lazy_static! {
         }
 
         // 인터럽트 핸들러
-        idt[InterruptIndex::Timer.as_u8()]
-            .set_handler_fn(timer_interrupt_handler);
+        // Timer interrupt uses IST[1] for Ring 3 -> Ring 0 transitions
+        unsafe {
+            idt[InterruptIndex::Timer.as_u8()]
+                .set_handler_fn(timer_interrupt_handler)
+                .set_stack_index(1);  // Use IST[1] for separate stack
+        }
         idt[InterruptIndex::Keyboard.as_u8()]
             .set_handler_fn(keyboard_interrupt_handler);
         idt[InterruptIndex::Mouse.as_u8()]
             .set_handler_fn(mouse_interrupt_handler);
 
-        // System call handler - must be accessible from Ring 3
-        idt[InterruptIndex::Syscall.as_u8()]
-            .set_handler_fn(syscall_handler)
-            .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
+        // System call handler - must be accessible from Ring 3, uses IST[2]
+        unsafe {
+            idt[InterruptIndex::Syscall.as_u8()]
+                .set_handler_fn(syscall_handler)
+                .set_privilege_level(x86_64::PrivilegeLevel::Ring3)
+                .set_stack_index(2);  // Use IST[2] for Ring 3 → Ring 0 transition
+        }
 
         idt
     };
@@ -103,8 +110,11 @@ extern "x86-interrupt" fn double_fault_handler(
 extern "x86-interrupt" fn timer_interrupt_handler(stack_frame: InterruptStackFrame) {
     // Check if interrupt came from Ring 3 (userspace)
     static mut RING3_INTERRUPT_COUNT: u64 = 0;
+    static mut TOTAL_INTERRUPT_COUNT: u64 = 0;
 
     unsafe {
+        TOTAL_INTERRUPT_COUNT += 1;
+
         // CS register's lower 2 bits indicate CPL (Current Privilege Level)
         let cs = stack_frame.code_segment.0;
         let cpl = cs & 0x3;
@@ -112,10 +122,10 @@ extern "x86-interrupt" fn timer_interrupt_handler(stack_frame: InterruptStackFra
         if cpl == 3 {
             RING3_INTERRUPT_COUNT += 1;
 
-            // Log every 100th Ring 3 interrupt to avoid spam
-            if RING3_INTERRUPT_COUNT % 100 == 0 {
-                crate::serial_println!("[TIMER] Ring 3 interrupt #{} - TSS working! CS={:#x}",
-                                      RING3_INTERRUPT_COUNT, cs);
+            // Log first Ring 3 interrupt and then every 100th to avoid spam
+            if RING3_INTERRUPT_COUNT == 1 || RING3_INTERRUPT_COUNT % 100 == 0 {
+                crate::serial_println!("[TIMER] Ring 3 interrupt #{} (total: {}) - TSS working! CS={:#x}",
+                                      RING3_INTERRUPT_COUNT, TOTAL_INTERRUPT_COUNT, cs);
             }
         }
 
@@ -150,7 +160,19 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFr
 
 // === System Call Handler ===
 
-extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
-    crate::serial_println!("[SYSCALL] Entered from Ring 3 - returning immediately");
+extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
+    static mut SYSCALL_COUNT: u64 = 0;
+
+    unsafe {
+        SYSCALL_COUNT += 1;
+
+        // Print first syscall and then every 1000th to avoid spam
+        if SYSCALL_COUNT == 1 || SYSCALL_COUNT % 1000 == 0 {
+            let cs = stack_frame.code_segment.0;
+            let cpl = cs & 0x3;
+            crate::serial_println!("[SYSCALL] #{} from Ring {} (CS={:#x}) - TSS stack switch working!",
+                                  SYSCALL_COUNT, cpl, cs);
+        }
+    }
     // Just return for now - register reading needs a different approach
 }

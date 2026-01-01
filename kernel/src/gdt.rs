@@ -46,9 +46,32 @@ static KERNEL_STACK: KernelStack = KernelStack([0; 16384]);
 struct DoubleFaultStack([u8; 16384]);
 static DOUBLE_FAULT_STACK: DoubleFaultStack = DoubleFaultStack([0; 16384]);
 
+// Timer interrupt stack (separate stack for timer interrupt from Ring 3)
+#[repr(align(4096))]
+struct TimerInterruptStack([u8; 16384]);
+static TIMER_INTERRUPT_STACK: TimerInterruptStack = TimerInterruptStack([0; 16384]);
+
+// Syscall stack (separate stack for syscalls from Ring 3)
+#[repr(align(4096))]
+struct SyscallStack([u8; 16384]);
+static SYSCALL_STACK: SyscallStack = SyscallStack([0; 16384]);
+
 /// Initialize GDT with custom entries including userspace segments and TSS
 pub fn init() {
     crate::serial_println!("  Creating custom GDT with userspace segments and TSS...");
+
+    // Enable SSE (required for compiler-generated code using xmm registers)
+    crate::serial_println!("  Enabling SSE...");
+    unsafe {
+        // Enable SSE: set CR4.OSFXSR (bit 9) and CR4.OSXMMEXCPT (bit 10)
+        core::arch::asm!(
+            "mov rax, cr4",
+            "or rax, 0x600",  // Set bits 9 and 10
+            "mov cr4, rax",
+            out("rax") _,
+        );
+    }
+    crate::serial_println!("  SSE enabled");
 
     // Get kernel stack top address (stack grows downward from top)
     let kernel_stack_ptr = KERNEL_STACK.0.as_ptr() as u64;
@@ -66,6 +89,16 @@ pub fn init() {
         let double_fault_stack_top = DOUBLE_FAULT_STACK.0.as_ptr() as u64 + DOUBLE_FAULT_STACK.0.len() as u64;
         TSS._ist[0] = double_fault_stack_top;
         crate::serial_println!("  Double fault stack (IST[0]): {:#x}", double_fault_stack_top);
+
+        // Set IST[1] for timer interrupt from Ring 3
+        let timer_int_stack_top = TIMER_INTERRUPT_STACK.0.as_ptr() as u64 + TIMER_INTERRUPT_STACK.0.len() as u64;
+        TSS._ist[1] = timer_int_stack_top;
+        crate::serial_println!("  Timer interrupt stack (IST[1]): {:#x}", timer_int_stack_top);
+
+        // Set IST[2] for syscalls from Ring 3
+        let syscall_stack_top = SYSCALL_STACK.0.as_ptr() as u64 + SYSCALL_STACK.0.len() as u64;
+        TSS._ist[2] = syscall_stack_top;
+        crate::serial_println!("  Syscall stack (IST[2]): {:#x}", syscall_stack_top);
 
         &TSS as *const TaskStateSegment as u64
     };
@@ -92,12 +125,15 @@ pub fn init() {
 
     // Create GDT with 7 entries (TSS takes 2)
     // x86-64 long mode segment descriptors
+    // Use same format for kernel and user data, only difference is DPL
     let gdt = [
         0x0000000000000000,  // 0x00: Null descriptor
         0x00209a0000000000,  // 0x08: Kernel code (P=1, DPL=0, S=1, Type=0x0a, L=1)
         0x0000920000000000,  // 0x10: Kernel data (P=1, DPL=0, S=1, Type=0x02)
         0x0020fa0000000000,  // 0x18: User code   (P=1, DPL=3, S=1, Type=0x0a, L=1)
-        0x0000f20000000000,  // 0x20: User data   (P=1, DPL=3, S=1, Type=0x02, L=0 for data)
+        0x0000f20000000000,  // 0x20: User data   (P=1, DPL=3, S=1, Type=0x02)
+                             //      Same as kernel data but with DPL=3
+                             //      Type 0x02 = Read/Write data segment
         tss_low,              // 0x28: TSS low
         tss_high,             // 0x30: TSS high
     ];
@@ -195,4 +231,11 @@ pub fn user_code_selector() -> SegmentSelector {
 pub fn user_data_selector() -> SegmentSelector {
     // 0x20 | 3 = 0x23 (index 4, RPL 3)
     SegmentSelector::new(4, x86_64::PrivilegeLevel::Ring3)
+}
+
+/// Get TSS information (rsp0, ist0, ist1, ist2)
+pub fn get_tss_info() -> (u64, u64, u64, u64) {
+    unsafe {
+        (TSS.rsp0, TSS._ist[0], TSS._ist[1], TSS._ist[2])
+    }
 }

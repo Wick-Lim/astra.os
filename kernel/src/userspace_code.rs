@@ -8,21 +8,23 @@ use crate::simple_html;
 /// Entry point for userspace
 /// This function will be called from kernel after switching to Ring 3
 /// Now with interrupt test to verify TSS-based Ring 3 → Ring 0 transition
-/// Using #[naked] to prevent compiler from generating prologue/epilogue
 #[no_mangle]
 #[unsafe(naked)]
 pub extern "C" fn userspace_main() -> ! {
-    // Test Ring 3 with interrupts enabled
+    // Ring 3 entry point - must use naked to avoid stack frame setup
+    // iretq already set up CS and SS correctly
     use core::arch::naked_asm;
     unsafe {
         naked_asm!(
-            // Enable interrupts
+            // Enable interrupts in Ring 3 to test TSS stack switching
             "sti",
 
-            // Infinite loop - wait for timer interrupt
+            // Test syscall (int 0x80) from Ring 3
             "1:",
-            "hlt",  // Halt until interrupt (saves CPU)
-            "jmp 1b",
+            "mov rax, 42",        // Syscall number (arbitrary)
+            "int 0x80",           // Trigger syscall
+            "nop",
+            "jmp 1b",             // Loop to repeat syscall test
         );
     }
 }
