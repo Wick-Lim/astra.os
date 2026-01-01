@@ -1,0 +1,346 @@
+ASTRA.OS Rust Standard Library Backend - Architecture Diagram
+==============================================================
+
+Layer 1: Application (Servo Browser Engine)
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Servo Components                                 │
+│  ┌─────────┬──────────┬──────────┬──────────┬──────────┬──────────┐   │
+│  │ Layout  │  Style   │  Script  │   Net    │  Gfx     │  Canvas  │   │
+│  └────┬────┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬─────┘   │
+│       │         │          │          │          │          │          │
+│       │    Uses Rust std library APIs                       │          │
+└───────┼─────────┼──────────┼──────────┼──────────┼──────────┼──────────┘
+        │         │          │          │          │          │
+        ▼         ▼          ▼          ▼          ▼          ▼
+
+Layer 2: Rust Standard Library (std)
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Rust libstd (std crate)                               │
+│  ┌──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐  │
+│  │ std::fs  │std::net  │std::time │std::thread│std::sync│ std::io  │  │
+│  │          │          │          │          │          │          │  │
+│  │ File     │TcpStream │ Instant  │ spawn()  │  Mutex   │  Read    │  │
+│  │ read()   │connect() │  now()   │ sleep()  │  RwLock  │  Write   │  │
+│  └────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬─────┘  │
+└───────┼──────────┼──────────┼──────────┼──────────┼──────────┼─────────┘
+        │          │          │          │          │          │
+        │     Delegates to sys::pal::astra_os                  │
+        ▼          ▼          ▼          ▼          ▼          ▼
+
+Layer 3: Platform Abstraction Layer (sys/pal/astra_os)
+┌─────────────────────────────────────────────────────────────────────────┐
+│           sys::pal::astra_os (ASTRA.OS-specific impl)                    │
+│  ┌──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐  │
+│  │  fs.rs   │  net.rs  │ time.rs  │thread.rs │ sync.rs  │  io.rs   │  │
+│  │          │          │          │          │          │          │  │
+│  │ File{fd} │TcpStream │ Instant  │Thread{id}│ Mutex    │ traits   │  │
+│  │ syscalls │ {sockfd} │ {ticks}  │ clone()  │ futex    │          │  │
+│  └────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬─────┘  │
+│       │          │          │          │          │          │         │
+│  ┌────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────┐  │
+│  │                    syscall.rs                                     │  │
+│  │    Raw syscall interface (INT 0x80 or SYSCALL instruction)       │  │
+│  └─────┬────────────┬──────────┬──────────┬──────────┬──────────────┘  │
+└────────┼────────────┼──────────┼──────────┼──────────┼──────────────────┘
+         │            │          │          │          │
+         │       Syscall numbers (Linux-compatible)    │
+         │            │          │          │          │
+         │  SYS_OPEN  │SYS_SOCKET│SYS_CLONE │SYS_FUTEX │
+         │  SYS_READ  │SYS_CONNECT│SYS_GETTID│         │
+         │  SYS_WRITE │SYS_SEND  │          │          │
+         │  SYS_CLOSE │SYS_RECV  │          │          │
+         ▼            ▼          ▼          ▼          ▼
+
+Layer 4: Kernel Syscall Interface (Ring 0)
+┌─────────────────────────────────────────────────────────────────────────┐
+│                   ASTRA.OS Kernel (no_std)                               │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │              Interrupt Handler (INT 0x80)                        │   │
+│  │    syscall_handler() - extracts RAX, RDI, RSI, RDX, R10, R8, R9 │   │
+│  └───────────────────────────┬─────────────────────────────────────┘   │
+│                              ▼                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │            syscall::handle_syscall()                             │   │
+│  │    Match syscall number -> dispatch to handler                  │   │
+│  └───┬─────────┬──────────┬──────────┬──────────┬──────────────────┘   │
+│      ▼         ▼          ▼          ▼          ▼                      │
+│  ┌───────┬─────────┬───────────┬───────────┬──────────┬──────────┐    │
+│  │ VFS   │ Network │  Process  │   Futex   │   Time   │  Memory  │    │
+│  │       │  Stack  │ Scheduler │   Queue   │  (PIT)   │  (brk)   │    │
+│  └───┬───┴────┬────┴─────┬─────┴─────┬─────┴────┬─────┴────┬─────┘    │
+└──────┼────────┼──────────┼───────────┼──────────┼──────────┼──────────┘
+       │        │          │           │          │          │
+       ▼        ▼          ▼           ▼          ▼          ▼
+
+Layer 5: Kernel Subsystems
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐ │
+│  │  VFS + TAR FS    │  │  Network Stack   │  │  Process/Thread Mgmt │ │
+│  │                  │  │                  │  │                      │ │
+│  │ • File Table     │  │ • TCP/IP Stack   │  │ • Thread Scheduler   │ │
+│  │ • TAR Parser     │  │ • Socket Table   │  │ • Context Switch     │ │
+│  │ • FD Management  │  │ • HTTP Client    │  │ • Address Spaces     │ │
+│  │ • Read/Write     │  │ • URL Parser     │  │ • Clone/Fork         │ │
+│  └──────────────────┘  └──────────────────┘  └──────────────────────┘ │
+│                                                                         │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐ │
+│  │  Synchronization │  │   Timekeeping    │  │  Memory Management   │ │
+│  │                  │  │                  │  │                      │ │
+│  │ • Futex Queues   │  │ • PIT Timer      │  │ • Heap Allocator     │ │
+│  │ • Wait Lists     │  │ • Tick Counter   │  │ • Page Allocator     │ │
+│  │ • Wake Ops       │  │ • RTC (future)   │  │ • brk/mmap           │ │
+│  └──────────────────┘  └──────────────────┘  └──────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Layer 6: Hardware
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│  │  VGA FB  │  │ Network  │  │   PIT    │  │    CPU   │  │  Memory  │ │
+│  │ (320x200)│  │   NIC    │  │ (1000Hz) │  │  (x86)   │  │  (RAM)   │ │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+Data Flow Example: File Read
+═════════════════════════════
+
+Servo (Layer 1):
+    let mut file = File::open("/index.html")?;
+         │
+         ▼
+std::fs (Layer 2):
+    pub fn open(path: &Path, opts: &OpenOptions) -> io::Result<File>
+         │
+         ▼
+sys::pal::astra_os::fs (Layer 3):
+    let fd = syscall2(SYS_OPEN, path_ptr, flags);
+         │
+         ▼
+Kernel syscall handler (Layer 4):
+    match SYS_OPEN => sys_open(path, flags)
+         │
+         ▼
+VFS (Layer 5):
+    1. Parse path string
+    2. Search TAR filesystem
+    3. Allocate FD entry
+    4. Return FD number
+         │
+         ▼
+Return to userspace (Layer 3):
+    File { fd: 3 }
+         │
+         ▼
+Servo continues (Layer 1):
+    file.read_to_string(&mut contents)?;
+
+
+Critical Path: HTTP Request
+════════════════════════════
+
+Servo Net Component:
+    TcpStream::connect("example.com:80")
+         │
+    std::net::TcpStream::connect()
+         │
+    sys::pal::astra_os::net::TcpStream::connect()
+         │
+    ┌────▼─────────────────────────────────┐
+    │ syscall(SYS_SOCKET, AF_INET, ...)    │ → Kernel allocates socket FD
+    │ syscall(SYS_CONNECT, fd, addr, ...)  │ → Kernel TCP handshake (SYN/ACK)
+    └──────────────────────────────────────┘
+         │
+    TcpStream { fd: 4 }
+         │
+    stream.write(b"GET / HTTP/1.1\r\n...")
+         │
+    syscall(SYS_WRITE, 4, buf, len)
+         │
+    Kernel Network Stack:
+         • Build TCP packet
+         • Wrap in IP packet
+         • Send via NIC
+         │
+    stream.read(&mut response_buf)
+         │
+    syscall(SYS_READ, 4, buf, len)
+         │
+    Kernel Network Stack:
+         • Wait for incoming packet
+         • Parse TCP/IP headers
+         • Copy payload to userspace buffer
+         │
+    Response data returned to Servo
+
+
+Thread Lifecycle (Phase 3)
+═══════════════════════════
+
+Servo calls:
+    thread::spawn(|| { ... })
+         │
+    std::thread::spawn()
+         │
+    sys::pal::astra_os::thread::spawn()
+         │
+    ┌────▼──────────────────────────────────────┐
+    │ 1. Allocate stack (16KB)                  │
+    │ 2. Box closure for passing to new thread  │
+    │ 3. syscall(SYS_CLONE, flags, stack, ...)  │
+    └───────────────┬───────────────────────────┘
+                    │
+    Kernel:         │
+    ┌───────────────▼───────────────────────────┐
+    │ 1. Create Thread struct                   │
+    │ 2. Copy parent's register state           │
+    │ 3. Set new thread's RSP to allocated stack│
+    │ 4. Set RIP to thread entry point          │
+    │ 5. Add to scheduler queue                 │
+    │ 6. Return thread ID to parent             │
+    └───────────────┬───────────────────────────┘
+                    │
+                    ├─────────┬────────────────┐
+         (parent)   │         │  (new thread)  │
+                    │         │                │
+         Returns    │         │   Executes at  │
+         JoinHandle │         │   entry point  │
+                    │         │                │
+                    │         └──> Runs closure()
+                    │              Calls sys_exit()
+                    │
+         Later: handle.join()
+                    │
+         syscall(SYS_FUTEX, FUTEX_WAIT, ...)
+                    │
+         Kernel blocks until thread exits
+         Returns thread's result
+
+
+Module Dependencies (Internal)
+═══════════════════════════════
+
+sys::pal::astra_os::mod.rs (root)
+    │
+    ├──> os.rs (errno mapping, constants)
+    │      ├─ Used by: ALL modules for error handling
+    │      └─ Syscalls: None (pure utility)
+    │
+    ├──> path.rs (path manipulation)
+    │      ├─ Used by: fs.rs, process.rs
+    │      └─ Syscalls: None (pure utility)
+    │
+    ├──> random.rs (PRNG)
+    │      ├─ Used by: mod.rs (hashmap_random_keys)
+    │      └─ Syscalls: None (uses RDRAND instruction)
+    │
+    ├──> time.rs (Instant, SystemTime)
+    │      ├─ Used by: thread.rs (sleep), fs.rs (timestamps)
+    │      └─ Syscalls: clock_gettime (future)
+    │      └─ Hardware: PIT timer (TICKS atomic variable)
+    │
+    ├──> io.rs (Read/Write trait impls)
+    │      ├─ Used by: fs.rs, net.rs, stdio.rs
+    │      └─ Syscalls: None (trait definitions)
+    │
+    ├──> fs.rs (File, OpenOptions)
+    │      ├─ Uses: os.rs, io.rs, time.rs
+    │      └─ Syscalls: open, read, write, close, lseek, fstat
+    │
+    ├──> stdio.rs (Stdin, Stdout, Stderr)
+    │      ├─ Uses: fs.rs, io.rs
+    │      └─ Syscalls: read(0), write(1/2)
+    │
+    ├──> net.rs (TcpStream, UdpSocket)
+    │      ├─ Uses: os.rs, io.rs
+    │      └─ Syscalls: socket, connect, send, recv, close
+    │
+    ├──> thread.rs (spawn, JoinHandle)
+    │      ├─ Uses: time.rs (sleep), os.rs
+    │      └─ Syscalls: clone, gettid, futex (for join)
+    │
+    ├──> sync.rs (Mutex, RwLock, Condvar)
+    │      ├─ Uses: thread.rs, os.rs
+    │      └─ Syscalls: futex (WAIT/WAKE)
+    │
+    ├──> process.rs (Command, Child)
+    │      ├─ Uses: fs.rs, env.rs, os.rs
+    │      └─ Syscalls: fork, execve, wait4
+    │
+    ├──> args.rs (command line arguments)
+    │      ├─ Used by: std::env::args()
+    │      └─ Syscalls: None (hardcoded for now)
+    │
+    └──> env.rs (environment variables)
+           ├─ Used by: process.rs, std::env::var()
+           └─ Syscalls: None (hardcoded for now)
+
+
+Syscall Implementation Priority
+════════════════════════════════
+
+Phase 1 (CURRENT - File I/O):
+    ✅ sys_read      (0)   - Read from file/stdin
+    ✅ sys_write     (1)   - Write to file/stdout/stderr
+    ✅ sys_open      (2)   - Open file
+    ✅ sys_close     (3)   - Close file descriptor
+    ✅ sys_brk       (12)  - Heap management
+    ✅ sys_getpid    (39)  - Get process ID
+    ✅ sys_exit      (60)  - Terminate process
+    ⏳ sys_lseek     (8)   - Seek within file (NEEDED)
+    ⏳ sys_fstat     (5)   - File metadata (NEEDED)
+
+Phase 2 (Networking):
+    ☐ sys_socket     (41)  - Create socket
+    ☐ sys_connect    (42)  - Connect to remote host
+    ☐ sys_send       (44)  - Send data on socket
+    ☐ sys_recv       (45)  - Receive data from socket
+
+Phase 3 (Threading):
+    ☐ sys_clone      (56)  - Create thread
+    ☐ sys_gettid     (186) - Get thread ID
+    ☐ sys_futex      (202) - Fast userspace mutex
+
+Phase 4 (Advanced):
+    ☐ sys_clock_gettime (96)  - Get time from RTC
+    ☐ sys_getdents   (78)     - List directory entries
+    ☐ sys_mmap       (9)      - Memory mapping
+    ☐ sys_munmap     (11)     - Unmap memory
+
+
+Performance Characteristics
+════════════════════════════
+
+Syscall Overhead:
+    • INT 0x80 instruction: ~100 cycles
+    • Register save/restore: ~50 cycles
+    • Dispatch to handler: ~20 cycles
+    • Return to userspace: ~100 cycles
+    Total: ~270 cycles (~0.1 microseconds on 3 GHz CPU)
+
+File I/O (VFS/TAR):
+    • open(): ~500 cycles (TAR directory scan)
+    • read(): ~200 cycles + memcpy time
+    • close(): ~100 cycles (free FD)
+
+Network I/O:
+    • connect(): ~100ms (TCP handshake over network)
+    • send(): ~1ms (packet transmission + ACK)
+    • recv(): ~1ms (wait for data)
+
+Threading:
+    • clone(): ~10,000 cycles (create thread struct)
+    • Context switch: ~1,000 cycles
+    • futex wait: ~500 cycles (if uncontended)
+
+Memory Allocation:
+    • brk(): ~200 cycles (adjust heap pointer)
+    • mmap(): ~5,000 cycles (allocate pages)
+
+
+Legend:
+    ✅ = Implemented
+    ⏳ = In progress / next priority
+    ☐ = Planned
+    │ = Dependency flow
+    ▼ = Data flow direction
+    → = Transformation

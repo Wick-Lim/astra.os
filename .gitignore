@@ -19,3 +19,6 @@ Thumbs.db
 
 # QEMU
 qemu.log
+
+# Servo clone (too large, clone separately)
+servo/

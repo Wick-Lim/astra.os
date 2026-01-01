@@ -1,13 +1,9 @@
 pub mod device;
-pub mod url;
-pub mod http;
 
 use lazy_static::lazy_static;
 use spin::Mutex;
 
 pub use device::DummyDevice;
-pub use url::Url;
-pub use http::{HttpRequest, HttpResponse, HttpMethod, parse_response};
 
 lazy_static! {
     pub static ref NETWORK: Mutex<Option<NetworkInfo>> = Mutex::new(None);
