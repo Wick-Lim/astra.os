@@ -70,7 +70,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use alloc::string::String;
     use alloc::vec::Vec;
     use alloc::boxed::Box;
-    use html::Node;
+    use simple_html::Node;
 
     // Test 1: String
     { let s = String::from("test"); }

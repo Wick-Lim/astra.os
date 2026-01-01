@@ -2,7 +2,7 @@
 // This is a minimal parser for demonstration
 // Will be replaced with Servo later when std is available
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 
