@@ -88,6 +88,8 @@ fn dispatch_syscall(args: &SyscallArgs) -> isize {
     match SyscallNumber::from_usize(args.syscall_num) {
         Some(SyscallNumber::Write) => sys_write(args.arg1, args.arg2, args.arg3),
         Some(SyscallNumber::Read) => sys_read(args.arg1, args.arg2, args.arg3),
+        Some(SyscallNumber::Open) => sys_open(args.arg1, args.arg2),
+        Some(SyscallNumber::Close) => sys_close(args.arg1),
         Some(SyscallNumber::Exit) => sys_exit(args.arg1 as i32),
         Some(SyscallNumber::Brk) => sys_brk(args.arg1),
         Some(SyscallNumber::GetPid) => sys_getpid(),
@@ -152,18 +154,13 @@ fn sys_write(fd: usize, buf: usize, count: usize) -> isize {
 /// sys_read - read from file descriptor
 ///
 /// # Arguments
-/// - fd: file descriptor (0 = stdin)
+/// - fd: file descriptor (0 = stdin, or file from sys_open)
 /// - buf: pointer to buffer (userspace address)
 /// - count: number of bytes to read
 ///
 /// # Returns
 /// Number of bytes read, or negative error code
 fn sys_read(fd: usize, buf: usize, count: usize) -> isize {
-    // Only support stdin for now
-    if fd != 0 {
-        return -9; // EBADF - bad file descriptor
-    }
-
     if count == 0 {
         return 0;
     }
@@ -174,11 +171,85 @@ fn sys_read(fd: usize, buf: usize, count: usize) -> isize {
     unsafe {
         let slice = core::slice::from_raw_parts_mut(buf as *mut u8, count);
 
-        // Read from keyboard buffer
-        let bytes_read = crate::keyboard::KEYBOARD_BUFFER.lock().read(slice);
+        // Use VFS layer for all file operations
+        match crate::fs::read(crate::fs::FileDescriptor(fd), slice) {
+            Ok(bytes_read) => {
+                crate::serial_println!("[SYSCALL] sys_read: read {} bytes from FD {}", bytes_read, fd);
+                bytes_read as isize
+            }
+            Err(e) => {
+                crate::serial_println!("[SYSCALL] sys_read error: {}", e);
+                -9 // EBADF
+            }
+        }
+    }
+}
 
-        crate::serial_println!("[SYSCALL] sys_read: read {} bytes from keyboard", bytes_read);
-        bytes_read as isize
+/// sys_open - open a file
+///
+/// # Arguments
+/// - pathname: pointer to null-terminated path string (userspace address)
+/// - flags: open flags (ignored for now, read-only filesystem)
+///
+/// # Returns
+/// File descriptor number, or negative error code
+fn sys_open(pathname: usize, _flags: usize) -> isize {
+    // Parse path string
+    unsafe {
+        // Find string length (look for null terminator)
+        let mut len = 0;
+        let ptr = pathname as *const u8;
+        while len < 4096 && *ptr.add(len) != 0 {
+            len += 1;
+        }
+
+        if len == 0 || len >= 4096 {
+            crate::serial_println!("[SYSCALL] sys_open: invalid path");
+            return -14; // EFAULT
+        }
+
+        let slice = core::slice::from_raw_parts(ptr, len);
+        match core::str::from_utf8(slice) {
+            Ok(path) => {
+                crate::serial_println!("[SYSCALL] sys_open: opening '{}'", path);
+                match crate::fs::open(path) {
+                    Ok(fd) => {
+                        crate::serial_println!("[SYSCALL] sys_open: opened as FD {}", fd.0);
+                        fd.0 as isize
+                    }
+                    Err(e) => {
+                        crate::serial_println!("[SYSCALL] sys_open error: {}", e);
+                        -2 // ENOENT - file not found
+                    }
+                }
+            }
+            Err(_) => {
+                crate::serial_println!("[SYSCALL] sys_open: path not valid UTF-8");
+                -14 // EFAULT
+            }
+        }
+    }
+}
+
+/// sys_close - close a file descriptor
+///
+/// # Arguments
+/// - fd: file descriptor to close
+///
+/// # Returns
+/// 0 on success, or negative error code
+fn sys_close(fd: usize) -> isize {
+    crate::serial_println!("[SYSCALL] sys_close: closing FD {}", fd);
+
+    match crate::fs::close(crate::fs::FileDescriptor(fd)) {
+        Ok(()) => {
+            crate::serial_println!("[SYSCALL] sys_close: FD {} closed successfully", fd);
+            0
+        }
+        Err(e) => {
+            crate::serial_println!("[SYSCALL] sys_close error: {}", e);
+            -9 // EBADF
+        }
     }
 }
 

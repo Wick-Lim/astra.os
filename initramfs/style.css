@@ -1,0 +1,15 @@
+body {
+    background-color: #000033;
+    color: #FFFFFF;
+    font-size: 14;
+}
+
+h1 {
+    color: #00FFFF;
+    font-size: 20;
+}
+
+p {
+    color: #CCCCCC;
+    margin: 10;
+}

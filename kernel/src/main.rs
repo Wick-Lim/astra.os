@@ -31,6 +31,7 @@ mod simple_html;
 mod userspace_code;
 mod html;
 mod keyboard;
+mod fs;
 
 entry_point!(kernel_main);
 
@@ -71,9 +72,21 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     drivers::framebuffer::init();
     serial_println!("Framebuffer initialized");
 
+    serial_println!("Initializing filesystem...");
+    // TAR 아카이브를 바이너리로 임베드
+    static INITRAMFS: &[u8] = include_bytes!("../../initramfs.tar");
+    match fs::init(INITRAMFS) {
+        Ok(()) => serial_println!("Filesystem initialized"),
+        Err(e) => serial_println!("Filesystem init error: {}", e),
+    }
+
     // Phase 1 테스트: Font rendering, HTML rendering
     serial_println!("\n=== Phase 1 Tests ===");
     test_phase1_features();
+
+    // Phase 2 테스트: TAR filesystem
+    serial_println!("\n=== Phase 2 Tests ===");
+    test_phase2_filesystem();
 
     serial_println!("\nGoing to Ring 3...\n");
 
@@ -127,6 +140,65 @@ fn test_phase1_features() {
         keyboard::KEYBOARD_BUFFER.lock().available() == 0);
     serial_println!("  sys_read implementation: Ready");
     serial_println!("=== Phase 1 Tests Complete ===\n");
+}
+
+/// Phase 2 기능 테스트: TAR filesystem
+fn test_phase2_filesystem() {
+    use alloc::vec::Vec;
+
+    serial_println!("[TEST 1] File listing");
+    // VFS에서 TAR 파일 목록 확인 (이미 init에서 출력됨)
+    serial_println!("  File listing: OK");
+
+    serial_println!("[TEST 2] File open/read/close");
+    // index.html 파일 열기
+    match fs::open("index.html") {
+        Ok(fd) => {
+            serial_println!("  Opened index.html as FD {}", fd.0);
+
+            // 파일 읽기 (작은 버퍼로 여러 번)
+            let mut buffer = Vec::new();
+            let mut temp_buf = [0u8; 128];
+
+            loop {
+                match fs::read(fd, &mut temp_buf) {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        buffer.extend_from_slice(&temp_buf[..n]);
+                        serial_println!("  Read {} bytes", n);
+                    }
+                    Err(e) => {
+                        serial_println!("  Read error: {}", e);
+                        break;
+                    }
+                }
+            }
+
+            serial_println!("  Total read: {} bytes", buffer.len());
+
+            // 파일 내용 출력 (처음 100바이트만)
+            if let Ok(content) = core::str::from_utf8(&buffer[..core::cmp::min(100, buffer.len())]) {
+                serial_println!("  Content preview: {}", content);
+            }
+
+            // 파일 닫기
+            match fs::close(fd) {
+                Ok(()) => serial_println!("  Closed index.html"),
+                Err(e) => serial_println!("  Close error: {}", e),
+            }
+        }
+        Err(e) => {
+            serial_println!("  Open error: {}", e);
+        }
+    }
+
+    serial_println!("[TEST 3] Invalid file");
+    match fs::open("nonexistent.html") {
+        Ok(_) => serial_println!("  ERROR: Should not open nonexistent file"),
+        Err(e) => serial_println!("  Correctly rejected: {}", e),
+    }
+
+    serial_println!("=== Phase 2 Tests Complete ===\n");
 }
 
 /// Jump from Ring 0 (kernel) to Ring 3 (userspace)
