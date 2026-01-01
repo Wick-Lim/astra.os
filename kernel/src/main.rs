@@ -157,8 +157,9 @@ fn jump_to_userspace() -> ! {
         let code_page = Page::containing_address(code_start);
         serial_println!("    Code at {:#x}, starting from page {:#x}", userspace_entry, code_page.start_address().as_u64());
 
-        // Mark the code page and a few adjacent pages to cover all userspace code/data
-        for i in 0..4 {  // Mark 4 pages (16KB) for userspace code
+        // Mark the code page and adjacent pages to cover all userspace code/data
+        // Need to mark all pages from code start to stack start (0x215000 - 0x224000 = 15 pages)
+        for i in 0..16 {  // Mark 16 pages (64KB) for userspace code and data
             let page: Page<Size4KiB> = code_page + i;
             memory::mark_code_page_user_accessible(page);
         }
