@@ -9,31 +9,28 @@ use spin::Mutex;
 static GDT: Mutex<Option<[u64; 7]>> = Mutex::new(None);
 
 /// TSS (Task State Segment) for storing kernel stack pointer
-/// x86-64 TSS is naturally aligned, no packing needed
-#[repr(C)]
+/// CRITICAL: Must be packed to match x86-64 TSS layout exactly (104 bytes)
+/// Without packing, compiler adds padding and makes it 112 bytes, breaking Ring 3 transitions
+#[repr(C, packed)]
 struct TaskStateSegment {
     _reserved1: u32,
     /// Ring 0 stack pointer - used when switching from Ring 3 to Ring 0
-    rsp0: u64,
-    _rsp1: u64,
-    _rsp2: u64,
+    privilege_stack_table: [u64; 3],  // RSP0, RSP1, RSP2
     _reserved2: u64,
-    _ist: [u64; 7],
+    interrupt_stack_table: [u64; 7],  // IST[0] through IST[6]
     _reserved3: u64,
     _reserved4: u16,
-    _iomap_base: u16,
+    iomap_base: u16,
 }
 
 static mut TSS: TaskStateSegment = TaskStateSegment {
     _reserved1: 0,
-    rsp0: 0,  // Will be set in init()
-    _rsp1: 0,
-    _rsp2: 0,
+    privilege_stack_table: [0; 3],  // RSP0, RSP1, RSP2
     _reserved2: 0,
-    _ist: [0; 7],
+    interrupt_stack_table: [0; 7],  // IST entries
     _reserved3: 0,
     _reserved4: 0,
-    _iomap_base: 0,
+    iomap_base: 0,
 };
 
 // Kernel stack for interrupt handling (16KB, properly aligned)
@@ -83,21 +80,21 @@ pub fn init() {
     // Initialize TSS with kernel stack pointer
     crate::serial_println!("  Setting TSS rsp0...");
     let tss_ptr = unsafe {
-        TSS.rsp0 = kernel_stack_top;
+        TSS.privilege_stack_table[0] = kernel_stack_top;  // RSP0 for Ring 3→0 transitions
 
         // Set IST[0] for double fault handler
         let double_fault_stack_top = DOUBLE_FAULT_STACK.0.as_ptr() as u64 + DOUBLE_FAULT_STACK.0.len() as u64;
-        TSS._ist[0] = double_fault_stack_top;
+        TSS.interrupt_stack_table[0] = double_fault_stack_top;
         crate::serial_println!("  Double fault stack (IST[0]): {:#x}", double_fault_stack_top);
 
         // Set IST[1] for timer interrupt from Ring 3
         let timer_int_stack_top = TIMER_INTERRUPT_STACK.0.as_ptr() as u64 + TIMER_INTERRUPT_STACK.0.len() as u64;
-        TSS._ist[1] = timer_int_stack_top;
+        TSS.interrupt_stack_table[1] = timer_int_stack_top;
         crate::serial_println!("  Timer interrupt stack (IST[1]): {:#x}", timer_int_stack_top);
 
         // Set IST[2] for syscalls from Ring 3
         let syscall_stack_top = SYSCALL_STACK.0.as_ptr() as u64 + SYSCALL_STACK.0.len() as u64;
-        TSS._ist[2] = syscall_stack_top;
+        TSS.interrupt_stack_table[2] = syscall_stack_top;
         crate::serial_println!("  Syscall stack (IST[2]): {:#x}", syscall_stack_top);
 
         &TSS as *const TaskStateSegment as u64
@@ -236,6 +233,11 @@ pub fn user_data_selector() -> SegmentSelector {
 /// Get TSS information (rsp0, ist0, ist1, ist2)
 pub fn get_tss_info() -> (u64, u64, u64, u64) {
     unsafe {
-        (TSS.rsp0, TSS._ist[0], TSS._ist[1], TSS._ist[2])
+        (
+            TSS.privilege_stack_table[0],
+            TSS.interrupt_stack_table[0],
+            TSS.interrupt_stack_table[1],
+            TSS.interrupt_stack_table[2],
+        )
     }
 }

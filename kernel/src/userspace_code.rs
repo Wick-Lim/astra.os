@@ -11,17 +11,13 @@ use crate::simple_html;
 #[no_mangle]
 #[unsafe(naked)]
 pub extern "C" fn userspace_main() -> ! {
-    // Ring 3 entry point - must use naked to avoid stack frame setup
-    // iretq already set up CS and SS correctly
+    // Ring 3 entry point - test syscall with fixed TSS
     use core::arch::naked_asm;
     unsafe {
         naked_asm!(
-            // Test syscall (int 0x80) from Ring 3 WITHOUT enabling interrupts first
             "1:",
-            "mov rax, 42",        // Syscall number (arbitrary)
-            "int 0x80",           // Trigger syscall
-            "nop",
-            "jmp 1b",             // Loop to repeat syscall test
+            "int 0x80",    // Syscall - should now work with packed TSS!
+            "jmp 1b",
         );
     }
 }

@@ -39,6 +39,7 @@ lazy_static! {
         // 예외 핸들러
         idt.breakpoint.set_handler_fn(breakpoint_handler);
         idt.page_fault.set_handler_fn(page_fault_handler);
+        idt.general_protection_fault.set_handler_fn(general_protection_fault_handler);
 
         // Double fault handler uses IST[0] for a separate stack
         unsafe {
@@ -92,6 +93,23 @@ extern "x86-interrupt" fn page_fault_handler(
     serial_println!("Accessed Address: {:?}", x86_64::registers::control::Cr2::read());
     serial_println!("Error Code: {:?}", error_code);
     serial_println!("{:#?}", stack_frame);
+
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
+extern "x86-interrupt" fn general_protection_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    serial_println!("EXCEPTION: GENERAL PROTECTION FAULT");
+    serial_println!("Error Code: {:#x}", error_code);
+    serial_println!("Stack Frame: {:#?}", stack_frame);
+    serial_println!("This likely means:");
+    serial_println!("  - Segment selector error");
+    serial_println!("  - Privilege level violation");
+    serial_println!("  - Or IDT/GDT misconfiguration");
 
     loop {
         x86_64::instructions::hlt();
@@ -166,11 +184,11 @@ extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
     unsafe {
         SYSCALL_COUNT += 1;
 
-        // Print first syscall and then every 1000th to avoid spam
-        if SYSCALL_COUNT == 1 || SYSCALL_COUNT % 1000 == 0 {
+        // Print first syscall and then every 100th to reduce spam
+        if SYSCALL_COUNT == 1 || SYSCALL_COUNT % 100 == 0 {
             let cs = stack_frame.code_segment.0;
             let cpl = cs & 0x3;
-            crate::serial_println!("[SYSCALL] #{} from Ring {} (CS={:#x}) - TSS stack switch working!",
+            crate::serial_println!("[SYSCALL] #{} from Ring {} (CS={:#x}) - TSS working!",
                                   SYSCALL_COUNT, cpl, cs);
         }
     }
