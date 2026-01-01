@@ -13,6 +13,7 @@ static mut PHYSICAL_MEMORY_OFFSET: Option<VirtAddr> = None;
 /// 메모리 초기화
 pub fn init(boot_info: &'static BootInfo) {
     use crate::serial_println;
+    use bootloader::bootinfo::MemoryRegionType;
 
     serial_println!("  Setting physical memory offset...");
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
@@ -20,6 +21,21 @@ pub fn init(boot_info: &'static BootInfo) {
         PHYSICAL_MEMORY_OFFSET = Some(phys_mem_offset);
     }
     serial_println!("  Physical memory offset set: {:#x}", phys_mem_offset.as_u64());
+
+    // 메모리 맵 출력
+    serial_println!("  Analyzing memory map...");
+    let mut total_usable = 0u64;
+    let mut usable_regions = 0usize;
+    for region in boot_info.memory_map.iter() {
+        let size = region.range.end_addr() - region.range.start_addr();
+        if region.region_type == MemoryRegionType::Usable {
+            total_usable += size;
+            usable_regions += 1;
+        }
+    }
+    let usable_mb = total_usable / (1024 * 1024);
+    serial_println!("  Usable regions: {}", usable_regions);
+    serial_println!("  Total usable: {} MB", usable_mb);
 
     // 페이지 테이블 설정
     serial_println!("  Creating page table mapper...");

@@ -79,7 +79,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     serial_println!("=== All basic tests passed! ===");
 
     // Create <h1>ASTRA.OS</h1> DOM
-    use core::mem;
     let mut children2 = Vec::new();
     children2.push(Box::new(Node::Text(String::from("ASTRA.OS"))));
     let dom = Node::Element {
@@ -87,40 +86,20 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         children: children2,
     };
 
-    // Simple manual rendering without Renderer struct
-    use crate::drivers::framebuffer::{fill_rect, draw_pixel};
-    use embedded_graphics::pixelcolor::{Rgb888, RgbColor};
+    // Try Renderer with optimized FONT_DATA
+    use crate::drivers::framebuffer::{fill_rect};
+    use embedded_graphics::pixelcolor::{Rgb888};
 
-    // Clear screen
     fill_rect(0, 0, 320, 200, Rgb888::BLACK);
 
-    // Draw heading background
-    fill_rect(0, 26, 320, 32, Rgb888::new(20, 20, 60));
+    let mut renderer = html::renderer::Renderer::new();
+    renderer.render(&dom);
 
-    // Draw simple "ASTRA.OS" using rectangles (no font needed)
-    let color = Rgb888::new(0, 200, 255);
-    let y_pos = 30;
+    // Test proper drop without mem::forget
+    drop(renderer);
+    drop(dom);
 
-    // A
-    fill_rect(20, y_pos, 3, 20, color);
-    fill_rect(23, y_pos, 8, 3, color);
-    fill_rect(31, y_pos, 3, 20, color);
-    fill_rect(23, y_pos+10, 8, 3, color);
-
-    // S
-    fill_rect(40, y_pos, 10, 3, color);
-    fill_rect(40, y_pos, 3, 10, color);
-    fill_rect(40, y_pos+10, 10, 3, color);
-    fill_rect(47, y_pos+10, 3, 10, color);
-    fill_rect(40, y_pos+17, 10, 3, color);
-
-    // T
-    fill_rect(56, y_pos, 10, 3, color);
-    fill_rect(59, y_pos, 3, 20, color);
-
-    mem::forget(dom);
-
-    serial_println!("OK");
+    serial_println!("OK - proper drop successful!");
 
     // 메인 루프
     loop {

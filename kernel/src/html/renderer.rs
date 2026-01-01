@@ -4,7 +4,7 @@
 use super::Node;
 use crate::drivers::framebuffer::{fill_rect, draw_pixel, WIDTH, HEIGHT};
 use embedded_graphics::pixelcolor::{Rgb888, RgbColor};
-use alloc::string::String;
+use alloc::boxed::Box;
 
 pub struct Renderer {
     x: usize,
@@ -22,37 +22,37 @@ impl Renderer {
     }
 
     pub fn render(&mut self, node: &Node) {
+        // Minimal render to avoid crashes - just draw background for h1
         match node {
             Node::Element { tag, children } => {
                 match tag.as_str() {
                     "h1" => {
-                        self.render_heading(children, Rgb888::new(0, 200, 255), 2);
-                    }
-                    "h2" => {
-                        self.render_heading(children, Rgb888::new(100, 200, 255), 1);
-                    }
-                    "p" => {
-                        self.render_paragraph(children);
-                    }
-                    "div" | "html" | "body" => {
+                        // Just draw the background bar
+                        fill_rect(0, self.y + self.line_height, WIDTH, 32, Rgb888::new(20, 20, 60));
+
+                        // Try to render children text carefully
+                        self.y += self.line_height + 5;
+                        self.x = 20;
+
                         for child in children {
-                            self.render(child);
+                            if let Node::Text(text) = child.as_ref() {
+                                // Render text with extreme care
+                                self.render_text_safe(text, Rgb888::new(0, 200, 255));
+                            }
                         }
                     }
                     _ => {
-                        for child in children {
-                            self.render(child);
-                        }
+                        // Skip other elements
                     }
                 }
             }
-            Node::Text(text) => {
-                self.render_text(text, Rgb888::WHITE);
+            Node::Text(_) => {
+                // Skip standalone text
             }
         }
     }
 
-    fn render_heading(&mut self, children: &[Node], color: Rgb888, size: usize) {
+    fn render_heading(&mut self, children: &[Box<Node>], color: Rgb888, size: usize) {
         // Add some vertical space before heading
         self.y += self.line_height;
 
@@ -63,11 +63,11 @@ impl Renderer {
         self.x = 20;
 
         for child in children {
-            match child {
+            match child.as_ref() {
                 Node::Text(text) => {
                     self.render_text(text, color);
                 }
-                _ => self.render(child),
+                _ => self.render(child.as_ref()),
             }
         }
 
@@ -75,16 +75,42 @@ impl Renderer {
         self.x = 10;
     }
 
-    fn render_paragraph(&mut self, children: &[Node]) {
+    fn render_paragraph(&mut self, children: &[Box<Node>]) {
         self.y += 10;
         self.x = 20;
 
         for child in children {
-            self.render(child);
+            self.render(child.as_ref());
         }
 
         self.y += self.line_height;
         self.x = 10;
+    }
+
+    fn render_text_safe(&mut self, text: &str, color: Rgb888) {
+        // Ultra-safe text rendering with minimal allocations
+        // Limit to first 32 characters to avoid issues
+        let mut count = 0;
+        for ch in text.chars() {
+            if count >= 32 {
+                break;
+            }
+
+            if self.x + 8 > WIDTH || ch == '\n' {
+                self.x = 20;
+                self.y += self.line_height;
+            }
+
+            if self.y + 8 > HEIGHT {
+                return;
+            }
+
+            if ch != '\n' && ch != '\r' {
+                self.render_char(ch, self.x, self.y, color);
+                self.x += 8;
+                count += 1;
+            }
+        }
     }
 
     fn render_text(&mut self, text: &str, color: Rgb888) {
@@ -123,14 +149,8 @@ impl Renderer {
 
 // 8x8 bitmap font data for ASCII characters (32-126)
 // Based on public domain font8x8
-fn get_simple_font(ch: char) -> [u8; 8] {
-    let idx = ch as usize;
-    if idx < 32 || idx > 126 {
-        return [0xFF, 0x81, 0x81, 0x81, 0x81, 0x81, 0xFF, 0x00]; // Box for unknown chars
-    }
-
-    // Font data array (ASCII 32-126)
-    const FONT_DATA: [[u8; 8]; 95] = [
+// Moved to module level to avoid stack allocation
+static FONT_DATA: [[u8; 8]; 95] = [
         [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], // Space (32)
         [0x18, 0x3C, 0x3C, 0x18, 0x18, 0x00, 0x18, 0x00], // !
         [0x36, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], // "
@@ -226,7 +246,12 @@ fn get_simple_font(ch: char) -> [u8; 8] {
         [0x18, 0x18, 0x18, 0x00, 0x18, 0x18, 0x18, 0x00], // |
         [0x07, 0x0C, 0x0C, 0x38, 0x0C, 0x0C, 0x07, 0x00], // }
         [0x6E, 0x3B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], // ~
-    ];
+];
 
+fn get_simple_font(ch: char) -> [u8; 8] {
+    let idx = ch as usize;
+    if idx < 32 || idx > 126 {
+        return [0xFF, 0x81, 0x81, 0x81, 0x81, 0x81, 0xFF, 0x00]; // Box for unknown chars
+    }
     FONT_DATA[idx - 32]
 }
