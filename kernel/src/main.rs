@@ -32,6 +32,7 @@ mod userspace_code;
 mod html;
 mod keyboard;
 mod fs;
+mod css;
 
 entry_point!(kernel_main);
 
@@ -87,6 +88,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // Phase 2 테스트: TAR filesystem
     serial_println!("\n=== Phase 2 Tests ===");
     test_phase2_filesystem();
+
+    // Phase 3 테스트: CSS parser and selector matching
+    serial_println!("\n=== Phase 3 Tests ===");
+    test_phase3_css();
 
     serial_println!("\nGoing to Ring 3...\n");
 
@@ -199,6 +204,110 @@ fn test_phase2_filesystem() {
     }
 
     serial_println!("=== Phase 2 Tests Complete ===\n");
+}
+
+/// Phase 3 기능 테스트: CSS parser and selector matching
+fn test_phase3_css() {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    serial_println!("[TEST 1] CSS Color Parsing");
+    // Test hex colors
+    let red = css::Color::from_hex("#FF0000");
+    assert!(red.is_some());
+    serial_println!("  Hex color parsing (#FF0000): OK");
+
+    let red_short = css::Color::from_hex("#F00");
+    assert!(red_short.is_some());
+    serial_println!("  Short hex color (#F00): OK");
+
+    // Test named colors
+    let white = css::Color::from_name("white");
+    assert!(white.is_some());
+    serial_println!("  Named color (white): OK");
+
+    serial_println!("[TEST 2] CSS Parser");
+    // Parse simple CSS
+    let css_text = r#"
+        h1 {
+            color: #00FFFF;
+            font-size: 20;
+            margin: 10;
+        }
+        p {
+            color: white;
+            margin: 5;
+        }
+    "#;
+
+    let stylesheet = css::parse_css(css_text);
+    serial_println!("  Parsed {} rules", stylesheet.rules.len());
+
+    // Check h1 rule
+    assert_eq!(stylesheet.rules[0].selectors[0], "h1");
+    assert_eq!(stylesheet.rules[0].declarations.len(), 3);
+    serial_println!("  H1 rule: OK ({} declarations)", stylesheet.rules[0].declarations.len());
+
+    // Check p rule
+    assert_eq!(stylesheet.rules[1].selectors[0], "p");
+    serial_println!("  P rule: OK");
+
+    serial_println!("[TEST 3] Selector Matching");
+    // Test tag selector
+    let tag_selector = css::parse_selector("h1");
+    serial_println!("  Tag selector parsed: {:?}", tag_selector);
+
+    // Test class selector
+    let class_selector = css::parse_selector(".my-class");
+    serial_println!("  Class selector parsed: {:?}", class_selector);
+
+    // Test ID selector
+    let id_selector = css::parse_selector("#my-id");
+    serial_println!("  ID selector parsed: {:?}", id_selector);
+
+    // Test matching
+    let mut attrs = Vec::new();
+    attrs.push((String::from("class"), String::from("my-class other")));
+    let element = html::ElementData {
+        tag_name: String::from("div"),
+        attributes: attrs,
+    };
+
+    let matches_div = css::matches_selector(&element, &css::parse_selector("div"));
+    serial_println!("  Matches 'div': {}", matches_div);
+    assert!(matches_div);
+
+    let matches_class = css::matches_selector(&element, &css::parse_selector(".my-class"));
+    serial_println!("  Matches '.my-class': {}", matches_class);
+    assert!(matches_class);
+
+    serial_println!("[TEST 4] Style Computation");
+    // Create element
+    let attrs = Vec::new();
+    let h1_element = html::ElementData {
+        tag_name: String::from("h1"),
+        attributes: attrs,
+    };
+
+    // Compute style
+    let computed = css::compute_style(&h1_element, &stylesheet);
+    serial_println!("  Computed {} properties for h1", computed.properties.len());
+
+    // Check color property
+    if let Some(css::PropertyValue::Color(color)) = computed.get("color") {
+        serial_println!("  H1 color: RGB({}, {}, {})", color.r, color.g, color.b);
+    }
+
+    // Check font-size property
+    if let Some(css::PropertyValue::Length(size)) = computed.get("font-size") {
+        serial_println!("  H1 font-size: {}px", size);
+    }
+
+    serial_println!("[TEST 5] Default Stylesheet");
+    let default_styles = css::Stylesheet::default_styles();
+    serial_println!("  Default stylesheet has {} rules", default_styles.rules.len());
+
+    serial_println!("=== Phase 3 Tests Complete ===\n");
 }
 
 /// Jump from Ring 0 (kernel) to Ring 3 (userspace)
