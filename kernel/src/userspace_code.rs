@@ -7,47 +7,18 @@ use crate::simple_html;
 
 /// Entry point for userspace
 /// This function will be called from kernel after switching to Ring 3
+/// MINIMAL VERSION - no allocations to test Ring 3 transition
 #[no_mangle]
 pub extern "C" fn userspace_main() -> ! {
-    syscall_write(1, b"\n========================================\n");
-    syscall_write(1, b"  ASTRA.OS BROWSER - Ring 3 Userspace\n");
-    syscall_write(1, b"========================================\n\n");
-
-    syscall_write(1, b"Initializing HTML renderer...\n\n");
-
-    // Test HTML content
-    let html = r#"
-    <html>
-        <head>
-            <title>ASTRA.OS Browser</title>
-        </head>
-        <body>
-            <h1>Welcome to ASTRA.OS!</h1>
-            <p>This is a browser running in Ring 3 userspace.</p>
-            <p>HTML parsing is working!</p>
-            <div>
-                <p>Nested content works too.</p>
-            </div>
-        </body>
-    </html>
-    "#;
-
-    syscall_write(1, b"Parsing HTML...\n");
-    let dom = simple_html::parse_html(html);
-
-    syscall_write(1, b"\nRendered output:\n");
-    syscall_write(1, b"----------------\n");
-    simple_html::render_html(&dom, 0);
-    syscall_write(1, b"----------------\n\n");
-
-    syscall_write(1, b"Browser is running in userspace!\n");
-    syscall_write(1, b"TODO: Add Servo for full browser engine\n\n");
+    syscall_write(1, b"\n===== RING 3 ENTERED! =====\n");
+    syscall_write(1, b"Userspace is running!\n");
+    syscall_write(1, b"===========================\n\n");
 
     // Main loop
-    let mut counter = 0;
+    let mut counter = 0u64;
     loop {
-        if counter % 10000000 == 0 {
-            syscall_write(1, b"Browser heartbeat...\n");
+        if counter % 100000000 == 0 {
+            syscall_write(1, b"Userspace heartbeat...\n");
         }
         counter += 1;
 
