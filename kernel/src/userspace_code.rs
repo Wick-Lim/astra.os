@@ -11,13 +11,27 @@ use crate::simple_html;
 #[no_mangle]
 #[unsafe(naked)]
 pub extern "C" fn userspace_main() -> ! {
-    // Ring 3 entry point - test syscall with fixed TSS
+    // Ring 3 entry point - Hello World from userspace!
     use core::arch::naked_asm;
     unsafe {
         naked_asm!(
-            "1:",
-            "int 0x80",    // Syscall - should now work with packed TSS!
-            "jmp 1b",
+            // sys_write(1, "Hello from Ring 3!\n", 20)
+            "mov rax, 1",              // syscall number: write
+            "mov rdi, 1",              // fd: stdout
+            "lea rsi, [rip + msg]",    // buffer: pointer to message
+            "mov rdx, 20",             // count: message length
+            "int 0x80",                // invoke syscall
+
+            // sys_exit(0)
+            "mov rax, 60",             // syscall number: exit
+            "mov rdi, 0",              // status: 0
+            "int 0x80",                // invoke syscall
+
+            // Should never reach here
+            "hlt",
+
+            "msg:",
+            ".ascii \"Hello from Ring 3!\\n\"",
         );
     }
 }

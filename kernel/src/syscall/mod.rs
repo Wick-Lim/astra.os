@@ -1,8 +1,6 @@
 // System call interface for ASTRA.OS
 // Implements POSIX-like syscalls for Ring 3 userspace
 
-use x86_64::structures::idt::InterruptStackFrame;
-
 /// Syscall numbers (Linux-compatible)
 #[derive(Debug, Clone, Copy)]
 #[repr(usize)]
@@ -49,29 +47,37 @@ pub struct SyscallArgs {
 
 /// Syscall dispatcher - called from interrupt handler
 ///
-/// This function extracts syscall arguments from registers and
-/// dispatches to the appropriate handler.
+/// This function dispatches syscall to appropriate handler based on
+/// arguments extracted from registers.
 ///
-/// # Safety
-/// This function is called from interrupt context and must not
-/// access user memory without proper validation.
-pub unsafe fn handle_syscall(stack_frame: &mut InterruptStackFrame) -> isize {
-    // TODO: Extract arguments from saved register state
-    // For now, we'll use a simplified approach
-
-    // Read RAX from stack frame to get syscall number
-    // In a full implementation, we would need to save all registers
-    // in the interrupt handler and pass them here
-
-    let syscall_num = 1; // Hardcoded for now (sys_write)
+/// # Arguments
+/// - syscall_num: RAX - syscall number
+/// - arg1: RDI - first argument
+/// - arg2: RSI - second argument
+/// - arg3: RDX - third argument
+/// - arg4: R10 - fourth argument
+/// - arg5: R8 - fifth argument
+/// - arg6: R9 - sixth argument
+///
+/// # Returns
+/// Return value to be placed in RAX for userspace
+pub fn handle_syscall(
+    syscall_num: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+    arg5: usize,
+    arg6: usize,
+) -> isize {
     let args = SyscallArgs {
         syscall_num,
-        arg1: 1,  // stdout
-        arg2: 0,  // buffer (dummy)
-        arg3: 0,  // count (dummy)
-        arg4: 0,
-        arg5: 0,
-        arg6: 0,
+        arg1,
+        arg2,
+        arg3,
+        arg4,
+        arg5,
+        arg6,
     };
 
     dispatch_syscall(&args)

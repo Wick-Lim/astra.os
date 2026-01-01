@@ -179,18 +179,41 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFr
 // === System Call Handler ===
 
 extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
-    static mut SYSCALL_COUNT: u64 = 0;
+    use core::arch::asm;
+
+    // Read syscall arguments from registers (Linux x86-64 ABI)
+    // RAX = syscall number
+    // RDI, RSI, RDX, R10, R8, R9 = arguments 1-6
+    let (syscall_num, arg1, arg2, arg3, arg4, arg5, arg6, result);
 
     unsafe {
-        SYSCALL_COUNT += 1;
+        // Read registers that userspace set before INT 0x80
+        asm!(
+            "mov {0}, rax",  // syscall number
+            "mov {1}, rdi",  // arg1
+            "mov {2}, rsi",  // arg2
+            "mov {3}, rdx",  // arg3
+            "mov {4}, r10",  // arg4
+            "mov {5}, r8",   // arg5
+            "mov {6}, r9",   // arg6
+            out(reg) syscall_num,
+            out(reg) arg1,
+            out(reg) arg2,
+            out(reg) arg3,
+            out(reg) arg4,
+            out(reg) arg5,
+            out(reg) arg6,
+        );
 
-        // Print first syscall and then every 100th to reduce spam
-        if SYSCALL_COUNT == 1 || SYSCALL_COUNT % 100 == 0 {
-            let cs = stack_frame.code_segment.0;
-            let cpl = cs & 0x3;
-            crate::serial_println!("[SYSCALL] #{} from Ring {} (CS={:#x}) - TSS working!",
-                                  SYSCALL_COUNT, cpl, cs);
-        }
+        // Call syscall handler
+        result = crate::syscall::handle_syscall(
+            syscall_num, arg1, arg2, arg3, arg4, arg5, arg6
+        );
+
+        // Set return value in RAX for userspace
+        asm!(
+            "mov rax, {0}",
+            in(reg) result,
+        );
     }
-    // Just return for now - register reading needs a different approach
 }
