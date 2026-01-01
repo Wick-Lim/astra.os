@@ -19,7 +19,7 @@ entry_point!(kernel_main);
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // 시리얼 포트 초기화
     serial::init();
-    serial_println!("Browser OS v0.1.0");
+    serial_println!("ASTRA.OS v0.1.0");
     serial_println!("Kernel starting...");
     serial_println!("Boot info physical_memory_offset: {:#x}", boot_info.physical_memory_offset);
 
@@ -57,7 +57,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     // 타이틀 바
     fill_rect(0, 0, 80, 1, Color::White, Color::Blue);
-    draw_str(2, 0, "Browser OS v0.1.0 - Phase 3: Network Stack", Color::White, Color::Blue);
+    draw_str(2, 0, "ASTRA.OS v0.1.0 - Phase 3: Network Stack", Color::White, Color::Blue);
 
     // 메인 컨텐츠 영역
     draw_str(2, 2, "=== Kernel Features ===", Color::Yellow, Color::Black);
