@@ -2,7 +2,7 @@
 target = "x86_64-browser_os.json"
 
 [unstable]
-build-std = ["core", "compiler_builtins", "alloc", "std"]
+build-std = ["core", "compiler_builtins", "alloc"]  # "std" removed due to libc dependency issues
 build-std-features = ["compiler-builtins-mem"]
 
 [target.'cfg(target_os = "astra_os")']
