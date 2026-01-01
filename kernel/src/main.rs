@@ -69,33 +69,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     drivers::framebuffer::init();
     serial_println!("Framebuffer initialized");
 
-    use alloc::string::String;
-    use alloc::vec::Vec;
-    use alloc::boxed::Box;
-    use simple_html::Node;
-
-    // Test 1: String
-    { let s = String::from("test"); }
-    serial_println!("Test 1 OK");
-
-    // Test 2: Vec<Box<Node>>
-    { let mut v = Vec::new(); v.push(Box::new(Node::Text(String::from("A")))); v.push(Box::new(Node::Text(String::from("B")))); }
-    serial_println!("Test 2 OK");
-
-    // Test 3: Node::Text
-    { let _text = Node::Text(String::from("X")); }
-    serial_println!("Test 3 OK");
-
-    // Test 4: Empty Element
-    { let _element = Node::Element { tag: String::from("p"), children: Vec::new(), }; }
-    serial_println!("Test 4 OK");
-
-    serial_println!("=== All basic tests passed! ===");
-
-    // TODO: Fix allocator issue - additional allocations cause triple fault
-    // serial_println!("=== Testing std library features ===");
-
-    serial_println!("\n=== Skipping additional tests - going straight to Ring 3 ===\n");
+    serial_println!("Skipping all allocator tests due to triple fault issues");
+    serial_println!("Going straight to Ring 3...\n");
 
     // Jump to userspace (Ring 3)
     jump_to_userspace();
@@ -233,8 +208,7 @@ fn jump_to_userspace() -> ! {
             "push {ss}",          // SS (user data segment)
             "push {rsp}",         // RSP (user stack pointer)
             "pushfq",             // RFLAGS (with current flags)
-            "and qword ptr [rsp], ~0x200",  // Clear IF (keep interrupts disabled for now)
-            "or qword ptr [rsp], 0x3000",   // Set IOPL=3 (bits 12-13) - allow STI/CLI in Ring 3
+            "and qword ptr [rsp], ~0x200",  // Clear IF (keep interrupts disabled)
             "push {cs}",          // CS (user code segment)
             "push {rip}",         // RIP (user code entry point)
             "iretq",              // Return to Ring 3

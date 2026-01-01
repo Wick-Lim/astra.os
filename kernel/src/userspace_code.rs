@@ -16,10 +16,7 @@ pub extern "C" fn userspace_main() -> ! {
     use core::arch::naked_asm;
     unsafe {
         naked_asm!(
-            // Enable interrupts in Ring 3 to test TSS stack switching
-            "sti",
-
-            // Test syscall (int 0x80) from Ring 3
+            // Test syscall (int 0x80) from Ring 3 WITHOUT enabling interrupts first
             "1:",
             "mov rax, 42",        // Syscall number (arbitrary)
             "int 0x80",           // Trigger syscall
