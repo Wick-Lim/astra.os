@@ -19,133 +19,152 @@ pub enum Node {
     Text(String),
 }
 
-pub struct Parser {
+pub struct Parser<'a> {
+    input: &'a str,
     pos: usize,
-    input: Vec<char>,
 }
 
-impl Parser {
-    pub fn new(html: &str) -> Self {
+impl<'a> Parser<'a> {
+    pub fn new(html: &'a str) -> Self {
         Parser {
+            input: html,
             pos: 0,
-            input: html.chars().collect(),
         }
+    }
+
+    fn remaining(&self) -> &'a str {
+        &self.input[self.pos..]
     }
 
     fn eof(&self) -> bool {
         self.pos >= self.input.len()
     }
 
-    fn next_char(&self) -> char {
-        self.input[self.pos]
-    }
-
     fn starts_with(&self, s: &str) -> bool {
-        let remaining = &self.input[self.pos..];
-        let mut chars = s.chars();
-        for (i, ch) in remaining.iter().enumerate() {
-            match chars.next() {
-                Some(expected) if *ch == expected => continue,
-                Some(_) => return false,
-                None => return true,
+        self.remaining().starts_with(s)
+    }
+
+    fn consume_char(&mut self) -> Option<char> {
+        let remaining = self.remaining();
+        let mut chars = remaining.chars();
+        match chars.next() {
+            Some(ch) => {
+                self.pos += ch.len_utf8();
+                Some(ch)
             }
+            None => None,
         }
-        chars.next().is_none()
     }
 
-    fn consume_char(&mut self) -> char {
-        let c = self.input[self.pos];
-        self.pos += 1;
-        c
-    }
-
-    fn consume_while<F>(&mut self, test: F) -> String
+    fn consume_while<F>(&mut self, test: F) -> &'a str
     where
         F: Fn(char) -> bool,
     {
-        let mut result = String::new();
-        while !self.eof() && test(self.next_char()) {
-            result.push(self.consume_char());
+        let start = self.pos;
+        while let Some(ch) = self.remaining().chars().next() {
+            if !test(ch) {
+                break;
+            }
+            self.pos += ch.len_utf8();
         }
-        result
+        &self.input[start..self.pos]
     }
 
     fn consume_whitespace(&mut self) {
         self.consume_while(char::is_whitespace);
     }
 
-    fn parse_tag_name(&mut self) -> String {
+    fn parse_tag_name(&mut self) -> &'a str {
         self.consume_while(|c| c.is_alphanumeric())
     }
 
-    fn parse_node(&mut self) -> Node {
-        if self.starts_with("<") {
-            self.parse_element()
+    // Safe iterative parser with depth limit
+    pub fn parse(html: &str) -> Node {
+        let mut parser = Parser::new(html);
+        parser.consume_whitespace();
+
+        // If starts with <, try to parse as element
+        if !parser.eof() && parser.starts_with("<") {
+            match parser.try_parse_element() {
+                Some(node) => node,
+                None => {
+                    Node::Element {
+                        tag: String::from("html"),
+                        children: alloc::vec![
+                            Node::Text(String::from("Parse error"))
+                        ],
+                    }
+                }
+            }
         } else {
-            self.parse_text()
+            Node::Text(String::from(html))
         }
     }
 
-    fn parse_text(&mut self) -> Node {
-        Node::Text(self.consume_while(|c| c != '<'))
-    }
+    // Non-panicking element parser
+    fn try_parse_element(&mut self) -> Option<Node> {
+        // Consume '<'
+        if self.consume_char()? != '<' {
+            return None;
+        }
 
-    fn parse_element(&mut self) -> Node {
-        // Opening tag
-        assert_eq!(self.consume_char(), '<');
         let tag_name = self.parse_tag_name();
+        if tag_name.is_empty() {
+            return None;
+        }
+
+        // Skip attributes
         self.consume_while(|c| c != '>');
-        assert_eq!(self.consume_char(), '>');
 
-        // Contents
-        let children = self.parse_nodes();
-
-        // Closing tag
-        if self.starts_with("</") {
-            assert_eq!(self.consume_char(), '<');
-            assert_eq!(self.consume_char(), '/');
-            let close_tag = self.parse_tag_name();
-            assert_eq!(close_tag, tag_name);  // Simplified assertion
-            self.consume_while(|c| c != '>');
-            assert_eq!(self.consume_char(), '>');
+        // Consume '>'
+        if self.consume_char()? != '>' {
+            return None;
         }
 
-        Node::Element {
-            tag: tag_name,
-            children,
-        }
-    }
+        // Parse children (non-recursive, depth=1 only)
+        let mut children = Vec::new();
 
-    fn parse_nodes(&mut self) -> Vec<Node> {
-        let mut nodes = Vec::new();
         loop {
             self.consume_whitespace();
-            if self.eof() || self.starts_with("</") {
+
+            if self.eof() {
                 break;
             }
-            nodes.push(self.parse_node());
-        }
-        nodes
-    }
 
-    // Simplified parse that doesn't use recursion heavily
-    pub fn parse(html: &str) -> Node {
-        use crate::serial_println;
-        serial_println!("  parse: creating parser");
+            // Check for closing tag
+            if self.starts_with("</") {
+                break;
+            }
 
-        // For now, just create a simple result without full parsing
-        // to test if allocation is the issue
-        Node::Element {
-            tag: String::from("html"),
-            children: alloc::vec![
-                Node::Element {
-                    tag: String::from("h1"),
-                    children: alloc::vec![
-                        Node::Text(String::from("Hello"))
-                    ],
-                }
-            ],
+            // Check for nested tag
+            if self.starts_with("<") {
+                // For now, skip nested tags to avoid recursion
+                self.consume_char(); // consume '<'
+                self.consume_while(|c| c != '>');
+                self.consume_char(); // consume '>'
+                continue;
+            }
+
+            // Parse text
+            let text = self.consume_while(|c| c != '<');
+            if !text.is_empty() {
+                children.push(Node::Text(String::from(text)));
+            }
         }
+
+        // Try to consume closing tag
+        if self.starts_with("</") {
+            self.consume_char(); // '<'
+            self.consume_char(); // '/'
+            let _close_tag = self.parse_tag_name();
+            self.consume_while(|c| c != '>');
+            self.consume_char(); // '>'
+        }
+
+        Some(Node::Element {
+            tag: String::from(tag_name),
+            children,
+        })
     }
 }
 
