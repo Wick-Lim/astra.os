@@ -129,3 +129,124 @@ fn map_vga_memory(
     serial_println!("    VGA pages mapped successfully");
     Ok(())
 }
+
+/// Mark a code page as USER accessible (for Ring 3) - executable, read-only
+/// This marks ALL levels of the page table hierarchy as USER_ACCESSIBLE
+pub unsafe fn mark_code_page_user_accessible(page: Page<Size4KiB>) {
+    use crate::serial_println;
+    use x86_64::structures::paging::PageTableIndex;
+
+    let phys_offset = physical_memory_offset();
+    serial_println!("    Marking page {:#x} as USER (code, executable) at ALL levels", page.start_address().as_u64());
+
+    // Get the page table hierarchy
+    let level_4_table = active_level_4_table(phys_offset);
+
+    let p4_index = page.p4_index();
+    let p3_index = page.p3_index();
+    let p2_index = page.p2_index();
+    let p1_index = page.p1_index();
+
+    // Mark Level 4 entry as USER_ACCESSIBLE
+    let p4_entry = &mut level_4_table[p4_index];
+    let mut flags = p4_entry.flags();
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+    p4_entry.set_flags(flags);
+
+    // Get Level 3 table
+    let p3_table_addr = phys_offset + p4_entry.addr().as_u64();
+    let p3_table: &mut PageTable = &mut *(p3_table_addr.as_mut_ptr());
+
+    // Mark Level 3 entry as USER_ACCESSIBLE
+    let p3_entry = &mut p3_table[p3_index];
+    let mut flags = p3_entry.flags();
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+    p3_entry.set_flags(flags);
+
+    // Get Level 2 table
+    let p2_table_addr = phys_offset + p3_entry.addr().as_u64();
+    let p2_table: &mut PageTable = &mut *(p2_table_addr.as_mut_ptr());
+
+    // Mark Level 2 entry as USER_ACCESSIBLE
+    let p2_entry = &mut p2_table[p2_index];
+    let mut flags = p2_entry.flags();
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+    p2_entry.set_flags(flags);
+
+    // Get Level 1 table
+    let p1_table_addr = phys_offset + p2_entry.addr().as_u64();
+    let p1_table: &mut PageTable = &mut *(p1_table_addr.as_mut_ptr());
+
+    // Mark Level 1 entry as USER_ACCESSIBLE and EXECUTABLE (no NO_EXECUTE)
+    let p1_entry = &mut p1_table[p1_index];
+    let mut flags = p1_entry.flags();
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+    flags.remove(PageTableFlags::NO_EXECUTE);
+    p1_entry.set_flags(flags);
+
+    // Flush TLB
+    use x86_64::instructions::tlb;
+    tlb::flush(page.start_address());
+
+    serial_println!("    Page {:#x} now USER accessible (executable) at all levels", page.start_address().as_u64());
+}
+
+/// Mark a data page as USER accessible (for Ring 3) - writable, non-executable
+/// This marks ALL levels of the page table hierarchy as USER_ACCESSIBLE
+pub unsafe fn mark_data_page_user_accessible(page: Page<Size4KiB>) {
+    use crate::serial_println;
+    use x86_64::structures::paging::PageTableIndex;
+
+    let phys_offset = physical_memory_offset();
+    serial_println!("    Marking page {:#x} as USER (data, writable, NX) at ALL levels", page.start_address().as_u64());
+
+    // Get the page table hierarchy
+    let level_4_table = active_level_4_table(phys_offset);
+
+    let p4_index = page.p4_index();
+    let p3_index = page.p3_index();
+    let p2_index = page.p2_index();
+    let p1_index = page.p1_index();
+
+    // Mark Level 4 entry as USER_ACCESSIBLE
+    let p4_entry = &mut level_4_table[p4_index];
+    let mut flags = p4_entry.flags();
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+    p4_entry.set_flags(flags);
+
+    // Get Level 3 table
+    let p3_table_addr = phys_offset + p4_entry.addr().as_u64();
+    let p3_table: &mut PageTable = &mut *(p3_table_addr.as_mut_ptr());
+
+    // Mark Level 3 entry as USER_ACCESSIBLE
+    let p3_entry = &mut p3_table[p3_index];
+    let mut flags = p3_entry.flags();
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+    p3_entry.set_flags(flags);
+
+    // Get Level 2 table
+    let p2_table_addr = phys_offset + p3_entry.addr().as_u64();
+    let p2_table: &mut PageTable = &mut *(p2_table_addr.as_mut_ptr());
+
+    // Mark Level 2 entry as USER_ACCESSIBLE
+    let p2_entry = &mut p2_table[p2_index];
+    let mut flags = p2_entry.flags();
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+    p2_entry.set_flags(flags);
+
+    // Get Level 1 table
+    let p1_table_addr = phys_offset + p2_entry.addr().as_u64();
+    let p1_table: &mut PageTable = &mut *(p1_table_addr.as_mut_ptr());
+
+    // Mark Level 1 entry as USER_ACCESSIBLE, WRITABLE, and NO_EXECUTE
+    let p1_entry = &mut p1_table[p1_index];
+    let mut flags = p1_entry.flags();
+    flags |= PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+    p1_entry.set_flags(flags);
+
+    // Flush TLB
+    use x86_64::instructions::tlb;
+    tlb::flush(page.start_address());
+
+    serial_println!("    Page {:#x} now USER accessible (writable, NX) at all levels", page.start_address().as_u64());
+}

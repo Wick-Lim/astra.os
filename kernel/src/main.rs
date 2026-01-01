@@ -2,6 +2,8 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(naked_functions)]
+#![feature(asm_const)]
 
 extern crate alloc;
 // Custom std backend implemented in rust-std-fork/library/std/src/sys/pal/astra_os/
@@ -102,23 +104,64 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 /// Jump from Ring 0 (kernel) to Ring 3 (userspace)
 fn jump_to_userspace() -> ! {
     use x86_64::VirtAddr;
+    use x86_64::structures::paging::{Page, PageTableFlags, Size4KiB};
 
     // Get userspace entry point
     let userspace_entry = userspace_code::get_userspace_entry();
     serial_println!("Userspace entry point: {:#x}", userspace_entry);
 
-    // Allocate user stack (for now, use a static array)
-    static mut USER_STACK: [u8; 8192] = [0; 8192];
+    // Allocate user stack with page alignment to avoid overlapping with GDT
+    #[repr(align(4096))]
+    struct UserStack([u8; 16384]);  // 16KB stack, page-aligned
+
+    static mut USER_STACK: UserStack = UserStack([0; 16384]);
     let user_stack_top = unsafe {
-        VirtAddr::from_ptr(USER_STACK.as_ptr()).as_u64() + USER_STACK.len() as u64
+        VirtAddr::from_ptr(USER_STACK.0.as_ptr()).as_u64() + USER_STACK.0.len() as u64
     };
     serial_println!("User stack: {:#x}", user_stack_top);
+
+    // Mark userspace code and stack pages as USER accessible
+    serial_println!("Marking userspace pages as USER accessible...");
+    unsafe {
+        // Mark code pages as USER accessible
+        // Mark multiple pages to ensure all userspace code/data is accessible
+        let code_start = VirtAddr::new(userspace_entry);
+        let code_page = Page::containing_address(code_start);
+        serial_println!("    Code at {:#x}, starting from page {:#x}", userspace_entry, code_page.start_address().as_u64());
+
+        // Mark the code page and a few adjacent pages to cover all userspace code/data
+        for i in 0..4 {  // Mark 4 pages (16KB) for userspace code
+            let page: Page<Size4KiB> = code_page + i;
+            memory::mark_code_page_user_accessible(page);
+        }
+
+        // Mark stack pages as USER accessible
+        let stack_start = VirtAddr::from_ptr(USER_STACK.0.as_ptr());
+        let stack_end = stack_start + USER_STACK.0.len() as u64;
+        serial_println!("    Stack from {:#x} to {:#x}", stack_start.as_u64(), stack_end.as_u64());
+        let stack_start_page = Page::containing_address(stack_start);
+        let stack_end_page = Page::containing_address(stack_end - 1u64);
+        serial_println!("    Stack pages from {:#x} to {:#x}", stack_start_page.start_address().as_u64(), stack_end_page.start_address().as_u64());
+
+        for page in Page::range_inclusive(stack_start_page, stack_end_page) {
+            memory::mark_data_page_user_accessible(page);
+        }
+    }
+    serial_println!("Userspace pages marked as USER accessible");
 
     // Get user segment selectors
     let user_cs = gdt::user_code_selector().0 as u64;
     let user_ss = gdt::user_data_selector().0 as u64;
 
     serial_println!("User CS: {:#x}, User SS: {:#x}", user_cs, user_ss);
+    serial_println!("User RIP: {:#x}, User RSP: {:#x}", userspace_entry, user_stack_top);
+
+    // Ensure stack is 16-byte aligned
+    let user_stack_top_aligned = user_stack_top & !0xF;
+    if user_stack_top != user_stack_top_aligned {
+        serial_println!("WARNING: Stack not 16-byte aligned! {:#x} -> {:#x}", user_stack_top, user_stack_top_aligned);
+    }
+
     serial_println!("Executing iretq to Ring 3...");
 
     unsafe {

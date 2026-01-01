@@ -49,9 +49,10 @@ lazy_static! {
         idt[InterruptIndex::Mouse.as_u8()]
             .set_handler_fn(mouse_interrupt_handler);
 
-        // System call handler
+        // System call handler - must be accessible from Ring 3
         idt[InterruptIndex::Syscall.as_u8()]
-            .set_handler_fn(syscall_handler);
+            .set_handler_fn(syscall_handler)
+            .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
 
         idt
     };

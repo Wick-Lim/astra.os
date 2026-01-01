@@ -42,13 +42,24 @@ unsafe impl GlobalAlloc for Locked<BumpAllocator> {
         let alloc_start = align_up(bump.next, layout.align());
         let alloc_end = match alloc_start.checked_add(layout.size()) {
             Some(end) => end,
-            None => return null_mut(),
+            None => {
+                crate::serial_println!("ALLOC FAIL: overflow - size={}, align={}", layout.size(), layout.align());
+                return null_mut();
+            }
         };
 
         if alloc_end > bump.heap_end {
+            let used = bump.next - bump.heap_start;
+            let total = bump.heap_end - bump.heap_start;
+            crate::serial_println!("ALLOC FAIL: OOM - requested={}, used={}/{}, free={}",
+                layout.size(), used, total, total - used);
             null_mut() // out of memory
         } else {
+            let used_before = bump.next - bump.heap_start;
             bump.next = alloc_end;
+            let used_after = bump.next - bump.heap_start;
+            crate::serial_println!("ALLOC OK: size={}, align={}, used: {} -> {} bytes",
+                layout.size(), layout.align(), used_before, used_after);
             alloc_start as *mut u8
         }
     }
@@ -56,7 +67,7 @@ unsafe impl GlobalAlloc for Locked<BumpAllocator> {
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
         // Bump allocator는 deallocate를 하지 않음
         // 메모리 재사용 불가 - 순수 bump-only 할당
-        // 아무것도 하지 않음
+        crate::serial_println!("DEALLOC: size={}, align={} (no-op)", _layout.size(), _layout.align());
     }
 }
 

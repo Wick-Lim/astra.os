@@ -7,22 +7,23 @@ use crate::simple_html;
 
 /// Entry point for userspace
 /// This function will be called from kernel after switching to Ring 3
-/// MINIMAL VERSION - no allocations to test Ring 3 transition
+/// ULTRA MINIMAL VERSION - just infinite loop to test Ring 3 transition
+/// Using #[naked] to prevent compiler from generating prologue/epilogue
 #[no_mangle]
+#[unsafe(naked)]
 pub extern "C" fn userspace_main() -> ! {
-    syscall_write(1, b"\n===== RING 3 ENTERED! =====\n");
-    syscall_write(1, b"Userspace is running!\n");
-    syscall_write(1, b"===========================\n\n");
-
-    // Main loop
-    let mut counter = 0u64;
-    loop {
-        if counter % 100000000 == 0 {
-            syscall_write(1, b"Userspace heartbeat...\n");
-        }
-        counter += 1;
-
-        unsafe { asm!("nop") };
+    // Do absolutely nothing except loop forever
+    // This tests if Ring 3 transition itself works
+    use core::arch::naked_asm;
+    unsafe {
+        naked_asm!(
+            "2:",
+            "nop",
+            "nop",
+            "nop",
+            "nop",
+            "jmp 2b",
+        );
     }
 }
 
