@@ -72,15 +72,31 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use html::Node;
 
     serial_println!("Creating DOM directly...");
-    let dom = Node::Element {
+
+    // Test 1: Simple text in h1
+    let text1 = String::from("ASTRA Browser");
+    let dom1 = Node::Element {
         tag: String::from("h1"),
-        children: vec![Node::Text(String::from("Hello World"))],
+        children: vec![Node::Text(text1)],
     };
-    serial_println!("DOM created!");
+
+    serial_println!("DOM 1 created!");
+
+    // Test 2: Paragraph
+    let text2 = String::from("Testing ASCII: 0123456789");
+    let dom2 = Node::Element {
+        tag: String::from("p"),
+        children: vec![Node::Text(text2)],
+    };
+
+    serial_println!("DOM 2 created!");
 
     serial_println!("Rendering to VGA...");
     let mut renderer = html::renderer::Renderer::new();
-    renderer.render(&dom);
+    renderer.render(&dom1);
+    serial_println!("First element rendered!");
+    renderer.render(&dom2);
+    serial_println!("Second element rendered!");
     serial_println!("Rendering complete!");
 
     serial_println!("HTML displayed successfully!");
