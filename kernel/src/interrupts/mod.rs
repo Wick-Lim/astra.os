@@ -39,7 +39,13 @@ lazy_static! {
         // 예외 핸들러
         idt.breakpoint.set_handler_fn(breakpoint_handler);
         idt.page_fault.set_handler_fn(page_fault_handler);
-        idt.double_fault.set_handler_fn(double_fault_handler);
+
+        // Double fault handler uses IST[0] for a separate stack
+        unsafe {
+            idt.double_fault
+                .set_handler_fn(double_fault_handler)
+                .set_stack_index(0);  // Use IST[0]
+        }
 
         // 인터럽트 핸들러
         idt[InterruptIndex::Timer.as_u8()]
@@ -94,10 +100,26 @@ extern "x86-interrupt" fn double_fault_handler(
 
 // === 하드웨어 인터럽트 핸들러 ===
 
-extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    // 타이머 인터럽트는 매우 자주 발생하므로 로그를 남기지 않음
+extern "x86-interrupt" fn timer_interrupt_handler(stack_frame: InterruptStackFrame) {
+    // Check if interrupt came from Ring 3 (userspace)
+    static mut RING3_INTERRUPT_COUNT: u64 = 0;
 
     unsafe {
+        // CS register's lower 2 bits indicate CPL (Current Privilege Level)
+        let cs = stack_frame.code_segment.0;
+        let cpl = cs & 0x3;
+
+        if cpl == 3 {
+            RING3_INTERRUPT_COUNT += 1;
+
+            // Log every 100th Ring 3 interrupt to avoid spam
+            if RING3_INTERRUPT_COUNT % 100 == 0 {
+                crate::serial_println!("[TIMER] Ring 3 interrupt #{} - TSS working! CS={:#x}",
+                                      RING3_INTERRUPT_COUNT, cs);
+            }
+        }
+
+        // Always send EOI
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Timer.as_u8());
     }
@@ -128,54 +150,7 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFr
 
 // === System Call Handler ===
 
-extern "x86-interrupt" fn syscall_handler(stack_frame: InterruptStackFrame) {
-    crate::serial_println!("[SYSCALL] Entered from Ring 3!");
-
-    unsafe {
-        // Read syscall number and arguments from registers
-        let syscall_num: u64;
-        let arg1: u64;
-        let arg2: u64;
-        let arg3: u64;
-
-        core::arch::asm!(
-            "nop",  // Placeholder - registers already have the values
-            lateout("rax") syscall_num,
-            lateout("rdi") arg1,
-            lateout("rsi") arg2,
-            lateout("rdx") arg3,
-        );
-
-        crate::serial_println!("[SYSCALL] num={}, arg1={:#x}, arg2={:#x}, arg3={}",
-                              syscall_num, arg1, arg2, arg3);
-
-        // For write syscall, print the message
-        if syscall_num == 1 {
-            crate::serial_println!("[SYSCALL] Write syscall - printing Ring 3 message:");
-            if arg3 > 0 && arg3 < 1000 {  // Reasonable length check
-                let msg_slice = core::slice::from_raw_parts(arg2 as *const u8, arg3 as usize);
-                if let Ok(msg_str) = core::str::from_utf8(msg_slice) {
-                    crate::serial_println!("[Ring 3 OUTPUT] {}", msg_str);
-                }
-            }
-        }
-
-        // Call syscall handler
-        let result = crate::syscall::handle_syscall(
-            syscall_num,
-            arg1,
-            arg2,
-            arg3,
-            0, // arg4
-            0, // arg5
-        );
-
-        crate::serial_println!("[SYSCALL] Returning to Ring 3 with result={}", result);
-
-        // Return value in rax
-        core::arch::asm!(
-            "nop",
-            in("rax") result,
-        );
-    }
+extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
+    crate::serial_println!("[SYSCALL] Entered from Ring 3 - returning immediately");
+    // Just return for now - register reading needs a different approach
 }

@@ -7,22 +7,22 @@ use crate::simple_html;
 
 /// Entry point for userspace
 /// This function will be called from kernel after switching to Ring 3
-/// Simple infinite loop - Ring 3 execution successful!
+/// Now with interrupt test to verify TSS-based Ring 3 → Ring 0 transition
 /// Using #[naked] to prevent compiler from generating prologue/epilogue
 #[no_mangle]
 #[unsafe(naked)]
 pub extern "C" fn userspace_main() -> ! {
-    // Simple infinite loop in Ring 3 (CPL=3)
-    // If this runs without crashing, Ring 3 transition is successful!
+    // Test Ring 3 with interrupts enabled
     use core::arch::naked_asm;
     unsafe {
         naked_asm!(
-            "2:",
-            "nop",
-            "nop",
-            "nop",
-            "nop",
-            "jmp 2b",
+            // Enable interrupts
+            "sti",
+
+            // Infinite loop - wait for timer interrupt
+            "1:",
+            "hlt",  // Halt until interrupt (saves CPU)
+            "jmp 1b",
         );
     }
 }

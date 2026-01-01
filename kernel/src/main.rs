@@ -160,11 +160,8 @@ fn jump_to_userspace() -> ! {
     let user_stack_top = user_stack_top & !0xF;
     serial_println!("User stack aligned to: {:#x}", user_stack_top);
 
-    // Disable interrupts before Ring 3 transition to prevent immediate interrupt
-    serial_println!("Disabling interrupts before Ring 3 transition...");
-    x86_64::instructions::interrupts::disable();
-
-    serial_println!("Executing iretq to Ring 3...");
+    serial_println!("Executing iretq to Ring 3 with interrupts DISABLED...");
+    serial_println!("Userspace will enable interrupts with STI instruction after stable entry");
 
     unsafe {
         core::arch::asm!(
@@ -172,7 +169,7 @@ fn jump_to_userspace() -> ! {
             "push {ss}",          // SS (user data segment)
             "push {rsp}",         // RSP (user stack pointer)
             "pushfq",             // RFLAGS (with current flags)
-            "and qword ptr [rsp], ~0x200",  // Clear IF (keep interrupts disabled)
+            "and qword ptr [rsp], ~0x200",  // Clear IF (keep interrupts disabled for now)
             "push {cs}",          // CS (user code segment)
             "push {rip}",         // RIP (user code entry point)
             "iretq",              // Return to Ring 3

@@ -41,6 +41,11 @@ static mut TSS: TaskStateSegment = TaskStateSegment {
 struct KernelStack([u8; 16384]);
 static KERNEL_STACK: KernelStack = KernelStack([0; 16384]);
 
+// Double fault stack (separate stack for double fault handler)
+#[repr(align(4096))]
+struct DoubleFaultStack([u8; 16384]);
+static DOUBLE_FAULT_STACK: DoubleFaultStack = DoubleFaultStack([0; 16384]);
+
 /// Initialize GDT with custom entries including userspace segments and TSS
 pub fn init() {
     crate::serial_println!("  Creating custom GDT with userspace segments and TSS...");
@@ -56,6 +61,12 @@ pub fn init() {
     crate::serial_println!("  Setting TSS rsp0...");
     let tss_ptr = unsafe {
         TSS.rsp0 = kernel_stack_top;
+
+        // Set IST[0] for double fault handler
+        let double_fault_stack_top = DOUBLE_FAULT_STACK.0.as_ptr() as u64 + DOUBLE_FAULT_STACK.0.len() as u64;
+        TSS._ist[0] = double_fault_stack_top;
+        crate::serial_println!("  Double fault stack (IST[0]): {:#x}", double_fault_stack_top);
+
         &TSS as *const TaskStateSegment as u64
     };
     crate::serial_println!("  TSS initialized at {:#x}", tss_ptr);
