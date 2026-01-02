@@ -1,0 +1,5 @@
+# ASTRA.OS External Packages
+
+menu "ASTRA.OS packages"
+    source "$BR2_EXTERNAL_ASTRA_PATH/packages/servo/Config.in"
+endmenu

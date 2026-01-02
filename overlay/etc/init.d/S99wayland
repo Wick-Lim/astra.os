@@ -1,0 +1,74 @@
+#!/bin/sh
+#
+# Start Wayland compositor with application
+#
+
+DAEMON="cage"
+DAEMON_ARGS="foot"  # Change to "servo <url>" when ready
+PIDFILE="/var/run/$DAEMON.pid"
+XDG_RUNTIME_DIR="/run/user/0"
+
+start() {
+    printf "Starting Wayland compositor: "
+
+    # Wait for DRM device
+    for i in $(seq 1 10); do
+        if [ -e /dev/dri/card0 ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    if [ ! -e /dev/dri/card0 ]; then
+        echo "FAIL (no GPU found)"
+        return 1
+    fi
+
+    # Setup XDG runtime directory
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 0700 "$XDG_RUNTIME_DIR"
+    export XDG_RUNTIME_DIR
+
+    # Source Wayland environment
+    . /etc/profile.d/wayland.sh 2>/dev/null
+
+    # Start compositor
+    start-stop-daemon -S -q -b -m -p "$PIDFILE" \
+        --exec /usr/bin/$DAEMON -- $DAEMON_ARGS
+
+    if [ $? -eq 0 ]; then
+        echo "OK"
+    else
+        echo "FAIL"
+    fi
+}
+
+stop() {
+    printf "Stopping Wayland compositor: "
+    start-stop-daemon -K -q -p "$PIDFILE"
+    rm -f "$PIDFILE"
+    echo "OK"
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart|reload)
+        restart
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $?

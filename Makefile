@@ -1,55 +1,50 @@
-.PHONY: build run clean kernel
+# ASTRA.OS Makefile
+# Convenience wrapper for build scripts
 
-# 기본 타겟
+.PHONY: all configure build clean menuconfig linux-menuconfig run help
+
 all: build
 
-# 커널 빌드
-kernel:
-	@echo "Building kernel..."
-	cd kernel && cargo build --release
+configure:
+	@./scripts/build.sh configure
 
-# 부팅 이미지 생성
-build: kernel
-	@echo "Creating bootable image..."
-	cd kernel && cargo bootimage --release
+build:
+	@./scripts/build.sh build
 
-# QEMU로 실행
-run: build
-	@echo "Starting QEMU..."
-	qemu-system-x86_64 \
-		-drive format=raw,file=target/x86_64-browser_os/release/bootimage-kernel.bin \
-		-device virtio-net,netdev=net0 \
-		-netdev user,id=net0 \
-		-m 256M \
-		-serial stdio \
-		-display cocoa
-
-# 클린
 clean:
-	@echo "Cleaning build artifacts..."
-	cd kernel && cargo clean
-	rm -rf target/
+	@./scripts/build.sh clean
 
-# 디버그 모드로 QEMU 실행
-debug: build
-	@echo "Starting QEMU in debug mode..."
-	qemu-system-x86_64 \
-		-drive format=raw,file=target/x86_64-browser_os/release/bootimage-kernel.bin \
-		-device virtio-net,netdev=net0 \
-		-netdev user,id=net0 \
-		-m 512M \
-		-serial stdio \
-		-s -S
+menuconfig:
+	@./scripts/build.sh menuconfig
 
-# 헬프
+linux-menuconfig:
+	@./scripts/build.sh linux-menuconfig
+
+savedefconfig:
+	@./scripts/build.sh savedefconfig
+
+run:
+	@./scripts/run-qemu.sh
+
+run-graphics:
+	@./scripts/run-qemu.sh graphics
+
+run-gl:
+	@./scripts/run-qemu.sh graphics-gl
+
 help:
-	@echo "Browser OS - Makefile"
+	@echo "ASTRA.OS Build System"
+	@echo ""
+	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Targets:"
-	@echo "  all     - Build the kernel and create bootable image (default)"
-	@echo "  kernel  - Build the kernel only"
-	@echo "  build   - Create bootable image"
-	@echo "  run     - Run the OS in QEMU"
-	@echo "  debug   - Run the OS in QEMU with GDB support"
-	@echo "  clean   - Remove build artifacts"
-	@echo "  help    - Show this help message"
+	@echo "  configure       - Configure Buildroot"
+	@echo "  build           - Build the system"
+	@echo "  clean           - Clean build output"
+	@echo "  menuconfig      - Open Buildroot config"
+	@echo "  linux-menuconfig - Open kernel config"
+	@echo "  savedefconfig   - Save current config"
+	@echo "  run             - Run in QEMU (text)"
+	@echo "  run-graphics    - Run in QEMU (graphics)"
+	@echo "  run-gl          - Run in QEMU (GPU accel)"
+	@echo "  help            - Show this help"
