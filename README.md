@@ -31,11 +31,25 @@ A minimal Linux-based operating system designed to run the Servo browser engine 
 
 ### Prerequisites
 
-- Linux host (macOS works for building, Linux for KVM acceleration)
-- Git, Make, GCC, and standard build tools
+- Docker (for macOS) or Linux host
 - QEMU for testing
+- Git
 
-### Build
+### Build on macOS (Docker)
+
+```bash
+# Clone repository
+git clone --recursive https://github.com/user/astra.os
+cd astra.os
+
+# Build in Docker (60-90 min first time)
+make docker
+
+# Test in QEMU
+make run-gl
+```
+
+### Build on Linux (Native)
 
 ```bash
 # Clone repository
@@ -43,23 +57,19 @@ git clone --recursive https://github.com/user/astra.os
 cd astra.os
 
 # Configure and build
-./scripts/build.sh configure
-./scripts/build.sh build
-```
+make configure
+make build
 
-First build takes 30-60 minutes depending on your machine.
+# Test in QEMU
+make run-gl
+```
 
 ### Run in QEMU
 
 ```bash
-# Text mode (serial console)
-./scripts/run-qemu.sh
-
-# Graphics mode
-./scripts/run-qemu.sh graphics
-
-# With GPU acceleration (requires virgl)
-./scripts/run-qemu.sh graphics-gl
+make run          # Text mode (serial console)
+make run-graphics # VGA graphics
+make run-gl       # GPU acceleration (virgl)
 ```
 
 Exit QEMU: `Ctrl+A`, then `X` (text mode) or close window (graphics).
@@ -77,10 +87,12 @@ astra.os/
 ├── packages/           # Custom Buildroot packages
 │   └── servo/          # Servo browser package
 ├── scripts/
-│   ├── build.sh        # Build script
+│   ├── build.sh        # Native build script
+│   ├── docker-build.sh # Docker build script
 │   └── run-qemu.sh     # QEMU runner
-├── output/             # Build output (generated)
-└── archive/            # Legacy kernel code
+├── Dockerfile          # Build environment
+├── docker-compose.yml
+└── output/             # Build output (generated)
 ```
 
 ## Development
@@ -88,30 +100,40 @@ astra.os/
 ### Modify Configuration
 
 ```bash
-# Buildroot configuration
-./scripts/build.sh menuconfig
+# macOS (Docker)
+make docker-menuconfig
+make docker-linux-menuconfig
 
-# Kernel configuration
-./scripts/build.sh linux-menuconfig
+# Linux (Native)
+make menuconfig
+make linux-menuconfig
+```
 
-# Save changes
-./scripts/build.sh savedefconfig
+### Enter Build Shell
+
+```bash
+# macOS
+make docker-shell
+
+# Then inside container:
+cd buildroot
+make O=/astra/output BR2_EXTERNAL=/astra menuconfig
 ```
 
 ### Clean Build
 
 ```bash
-./scripts/build.sh clean
-./scripts/build.sh build
+make docker-clean  # macOS: clean + remove Docker volumes
+make clean         # Linux: clean output only
 ```
 
 ## Roadmap
 
-- [x] Phase 1: Basic bootable Linux
-- [ ] Phase 2: Graphics stack (Mesa, Wayland, Cage)
+- [x] Phase 1: Buildroot environment
+- [x] Phase 2: Graphics stack (Mesa, Wayland, Cage)
 - [ ] Phase 3: Servo integration
 - [ ] Phase 4: Boot automation
-- [ ] Phase 5: Real hardware support (UEFI, ISO)
+- [ ] Phase 5: Real hardware (UEFI, ISO)
 - [ ] Phase 6: Optimization
 
 ## License

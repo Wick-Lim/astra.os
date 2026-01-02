@@ -1,28 +1,24 @@
 # ASTRA.OS Makefile
-# Convenience wrapper for build scripts
 
-.PHONY: all configure build clean menuconfig linux-menuconfig run help
+.PHONY: build clean menuconfig linux-menuconfig shell run help
 
-all: build
-
-configure:
-	@./scripts/build.sh configure
-
+# Build (always uses Docker)
 build:
-	@./scripts/build.sh build
+	@./scripts/docker-build.sh build
 
 clean:
-	@./scripts/build.sh clean
+	@./scripts/docker-build.sh clean-all
 
 menuconfig:
-	@./scripts/build.sh menuconfig
+	@./scripts/docker-build.sh menuconfig
 
 linux-menuconfig:
-	@./scripts/build.sh linux-menuconfig
+	@./scripts/docker-build.sh linux-menuconfig
 
-savedefconfig:
-	@./scripts/build.sh savedefconfig
+shell:
+	@./scripts/docker-build.sh shell
 
+# Run in QEMU
 run:
 	@./scripts/run-qemu.sh
 
@@ -32,19 +28,16 @@ run-graphics:
 run-gl:
 	@./scripts/run-qemu.sh graphics-gl
 
+# Help
 help:
 	@echo "ASTRA.OS Build System"
 	@echo ""
-	@echo "Usage: make <target>"
+	@echo "Build:"
+	@echo "  make build      - Build in Docker (60-90 min)"
+	@echo "  make clean      - Clean build output"
+	@echo "  make menuconfig - Buildroot config"
+	@echo "  make shell      - Enter build shell"
 	@echo ""
-	@echo "Targets:"
-	@echo "  configure       - Configure Buildroot"
-	@echo "  build           - Build the system"
-	@echo "  clean           - Clean build output"
-	@echo "  menuconfig      - Open Buildroot config"
-	@echo "  linux-menuconfig - Open kernel config"
-	@echo "  savedefconfig   - Save current config"
-	@echo "  run             - Run in QEMU (text)"
-	@echo "  run-graphics    - Run in QEMU (graphics)"
-	@echo "  run-gl          - Run in QEMU (GPU accel)"
-	@echo "  help            - Show this help"
+	@echo "Run:"
+	@echo "  make run        - QEMU text mode"
+	@echo "  make run-gl     - QEMU with GPU"

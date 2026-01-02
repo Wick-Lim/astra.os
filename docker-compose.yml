@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  builder:
+    build: .
+    image: astra-builder
+    container_name: astra-build
+    volumes:
+      - .:/astra
+      # Cache for faster rebuilds
+      - buildroot-dl:/astra/buildroot/dl
+      - buildroot-ccache:/home/builder/.ccache
+    working_dir: /astra
+    tty: true
+    stdin_open: true
+
+volumes:
+  buildroot-dl:
+  buildroot-ccache:
